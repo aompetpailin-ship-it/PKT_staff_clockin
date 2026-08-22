@@ -14,10 +14,55 @@ export async function GET(request: Request) {
       return NextResponse.json({ success: true, employee });
     }
 
-    const employees = await prisma.employee.findMany({
+    let employees = await prisma.employee.findMany({
       include: { homeBranch: true },
       orderBy: { fullName: 'asc' },
     });
+
+    // Auto-seed default sample employees if DB is empty
+    if (employees.length === 0) {
+      const branches = await prisma.branch.findMany();
+      if (branches.length > 0) {
+        const homeB = branches[0];
+        const defaultEmps = [
+          {
+            lineUserId: 'LINE_EMP_001',
+            fullName: 'สมชาย ใจดี',
+            nickname: 'ชาย',
+            pinCode: '1234',
+            phone: '0812345678',
+            role: 'STAFF',
+            employmentType: 'FULL_TIME',
+            homeBranchId: homeB.id,
+            canRoam: true,
+          },
+          {
+            lineUserId: 'LINE_EMP_002',
+            fullName: 'สมหญิง รักงาน',
+            nickname: 'หญิง',
+            pinCode: '1234',
+            phone: '0823456789',
+            role: 'STAFF',
+            employmentType: 'FULL_TIME',
+            homeBranchId: homeB.id,
+            canRoam: true,
+          },
+        ];
+
+        for (const emp of defaultEmps) {
+          await prisma.employee.upsert({
+            where: { lineUserId: emp.lineUserId },
+            update: {},
+            create: emp,
+          });
+        }
+
+        employees = await prisma.employee.findMany({
+          include: { homeBranch: true },
+          orderBy: { fullName: 'asc' },
+        });
+      }
+    }
 
     return NextResponse.json({ success: true, employees });
   } catch (error: any) {
@@ -64,9 +109,17 @@ export async function POST(request: Request) {
         },
       });
     } else {
-      // Upsert / Create Employee
+      // Create / Upsert Employee
+      let bId = homeBranchId;
+      if (!bId) {
+        const firstBranch = await prisma.branch.findFirst();
+        if (firstBranch) bId = firstBranch.id;
+      }
+
+      const generatedLineId = lineUserId || `LINE_EMP_${Date.now()}`;
+
       employee = await prisma.employee.upsert({
-        where: { lineUserId },
+        where: { lineUserId: generatedLineId },
         update: {
           fullName,
           nickname,
@@ -74,19 +127,19 @@ export async function POST(request: Request) {
           ...(pinCode ? { pinCode: pinCode.trim() } : {}),
           role: role || 'STAFF',
           employmentType: employmentType || 'FULL_TIME',
-          homeBranchId,
+          homeBranchId: bId,
           canRoam: canRoam !== undefined ? Boolean(canRoam) : true,
           ...(resetDeviceBinding ? { boundDeviceId: null } : {}),
         },
         create: {
-          lineUserId,
+          lineUserId: generatedLineId,
           fullName,
           nickname,
           phone,
           pinCode: pinCode ? pinCode.trim() : '1234',
           role: role || 'STAFF',
           employmentType: employmentType || 'FULL_TIME',
-          homeBranchId,
+          homeBranchId: bId,
           canRoam: canRoam !== undefined ? Boolean(canRoam) : true,
         },
       });
