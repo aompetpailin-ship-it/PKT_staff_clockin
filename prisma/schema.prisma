@@ -1,0 +1,145 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+model Branch {
+  id                  String           @id @default(uuid())
+  name                String
+  code                String           @unique
+  latitude            Float
+  longitude           Float
+  allowedRadiusMeters Float            @default(100.0)
+  shiftStartTime      String           @default("09:00")
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+
+  employeesHome       Employee[]       @relation("HomeBranch")
+  attendances         Attendance[]
+  dailySales          DailySales[]
+  schedules           BranchSchedule[]
+}
+
+model BranchSchedule {
+  id             String   @id @default(uuid())
+  branchId       String
+  dayOfWeek      Int      // 0 = อาทิตย์, 1 = จันทร์, 2 = อังคาร, ..., 6 = เสาร์
+  shiftStartTime String   @default("09:00")
+  shiftEndTime   String   @default("18:00")
+  notes          String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  branch         Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@unique([branchId, dayOfWeek])
+}
+
+model Employee {
+  id             String     @id @default(uuid())
+  lineUserId     String     @unique
+  fullName       String
+  nickname       String?
+  phone          String?
+  pinCode        String?    @default("1234")
+  boundDeviceId  String?    // Device Fingerprint ID bound to this employee phone
+  role           String     @default("STAFF") // STAFF, MANAGER, ADMIN
+  employmentType String     @default("FULL_TIME") // FULL_TIME, PART_TIME
+  homeBranchId   String
+  canRoam        Boolean    @default(true)
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+
+  homeBranch   Branch              @relation("HomeBranch", fields: [homeBranchId], references: [id])
+  attendances  Attendance[]
+  bonusPayouts BonusPayout[]
+  diligences   MonthlyDiligence[]
+  leaveRecords LeaveRecord[]
+}
+
+model LeaveRecord {
+  id          String   @id @default(uuid())
+  employeeId  String
+  dateStr     String   // YYYY-MM-DD
+  leaveType   String   // SICK_LEAVE (ลาป่วย), CASUAL_LEAVE (ลากิจ), ANNUAL_LEAVE (ลาพักร้อน), ABSENT (ขาดงาน)
+  reason      String?
+  status      String   @default("APPROVED") // APPROVED, PENDING, REJECTED
+  recordedBy  String?  // Username of manager who recorded
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  employee    Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@unique([employeeId, dateStr])
+}
+
+model Attendance {
+  id                 String    @id @default(uuid())
+  employeeId         String
+  branchId           String
+  dateStr            String    // YYYY-MM-DD
+  clockInAt          DateTime
+  clockOutAt         DateTime?
+  clockInPhotoUrl    String?
+  verificationMethod String    @default("PHOTO_SELFIE") // PHOTO_SELFIE, PIN_CODE, MANAGER_OVERRIDE
+  deviceId           String?   // Device ID used to clock in
+  clockInLat         Float
+  clockInLng         Float
+  distanceMeters     Float
+  lateMinutes        Int       @default(0)
+  status             String    @default("ON_TIME") // ON_TIME, LATE, ABSENT, LEAVE
+  notes              String?
+  createdAt          DateTime  @default(now())
+
+  employee           Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  branch             Branch    @relation(fields: [branchId], references: [id], onDelete: Cascade)
+}
+
+model DailySales {
+  id          String        @id @default(uuid())
+  branchId    String
+  dateStr     String        // YYYY-MM-DD
+  totalSales  Float
+  recordedBy  String?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  branch      Branch        @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  bonusPayouts BonusPayout[]
+
+  @@unique([branchId, dateStr])
+}
+
+model BonusPayout {
+  id           String      @id @default(uuid())
+  dailySalesId String
+  employeeId   String
+  branchId     String
+  dateStr      String
+  amount       Float
+  reason       String
+  createdAt    DateTime    @default(now())
+
+  dailySales   DailySales  @relation(fields: [dailySalesId], references: [id], onDelete: Cascade)
+  employee     Employee    @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+}
+
+model MonthlyDiligence {
+  id              String   @id @default(uuid())
+  employeeId      String
+  monthYear       String   // YYYY-MM
+  lateCount       Int      @default(0)
+  leaveCount      Int      @default(0)
+  absentCount     Int      @default(0)
+  isEligible      Boolean  @default(true)
+  allowanceAmount Float    @default(500.0)
+  calculatedAt    DateTime @default(now())
+
+  employee        Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@unique([employeeId, monthYear])
+}
