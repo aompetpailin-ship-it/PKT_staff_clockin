@@ -4,7 +4,7 @@ import { prisma } from '@/lib/prisma';
 const DEFAULT_BRANCHES = [
   {
     code: 'B1',
-    name: 'B1 - Ladphrao',
+    name: 'B1_Ladphrao',
     latitude: 13.814321,
     longitude: 100.561234,
     allowedRadiusMeters: 5.0,
@@ -12,7 +12,7 @@ const DEFAULT_BRANCHES = [
   },
   {
     code: 'B2',
-    name: 'B2 - Theprak',
+    name: 'B2_Theprak',
     latitude: 13.886123,
     longitude: 100.612345,
     allowedRadiusMeters: 100.0,
@@ -20,7 +20,7 @@ const DEFAULT_BRANCHES = [
   },
   {
     code: 'B3',
-    name: 'B3 - Muangthong',
+    name: 'B3_Muangthong',
     latitude: 13.912345,
     longitude: 100.551234,
     allowedRadiusMeters: 100.0,
@@ -28,7 +28,7 @@ const DEFAULT_BRANCHES = [
   },
   {
     code: 'B4',
-    name: 'B4 - Pinklao',
+    name: 'B4_Pinklao',
     latitude: 13.771234,
     longitude: 100.478910,
     allowedRadiusMeters: 100.0,
@@ -42,7 +42,7 @@ export async function GET() {
       orderBy: { code: 'asc' },
     });
 
-    // Auto-seed default 4 branches if empty (e.g. on new serverless cloud deployment)
+    // Auto-seed or update default 4 branches if missing or empty
     if (branches.length === 0) {
       console.log('No branches found in DB. Auto-seeding default 4 branches...');
       for (const b of DEFAULT_BRANCHES) {

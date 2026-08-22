@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { checkGeofence } from '@/lib/geofence';
 import { sendLineGroupNotification } from '@/lib/line';
+import { syncToGoogleSheets } from '@/lib/googleSheets';
 
 export async function POST(request: Request) {
   try {
@@ -199,6 +200,23 @@ export async function POST(request: Request) {
     // Send LINE Notification Broadcast (if LINE Token configured)
     const lineMsg = `🟢 [ร้านผมขอทอด] แจ้งเตือนเข้างาน!\n👤 พนักงาน: ${employee.fullName} (${employee.nickname || 'พนักงาน'})\n🏪 สาขา: ${branch.name}\n⏰ เวลา: ${now.toLocaleTimeString('th-TH')} น.\n📌 สถานะ: ${status === 'LATE' ? `⚠️ มาสาย ${lateMinutes} นาที` : '✅ ตรงเวลา'}\n🔐 วิธียืนยัน: ${methodLabel}`;
     sendLineGroupNotification(lineMsg, photoUrl && photoUrl.startsWith('http') ? photoUrl : undefined).catch((err) => console.error(err));
+
+    // Backup / Sync to Google Sheets
+    syncToGoogleSheets({
+      type: 'CLOCK_IN',
+      data: {
+        dateStr,
+        timeStr: now.toLocaleTimeString('th-TH'),
+        employeeName: employee.fullName,
+        nickname: employee.nickname,
+        branchCode: branch.code,
+        branchName: branch.name,
+        status: status === 'ON_TIME' ? 'ตรงเวลา' : `สาย ${lateMinutes} นาที`,
+        lateMinutes,
+        verificationMethod,
+        notes: attendance.notes,
+      },
+    }).catch((err) => console.error(err));
 
     return NextResponse.json({
       success: true,
