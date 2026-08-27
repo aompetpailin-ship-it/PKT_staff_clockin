@@ -92,20 +92,23 @@ export async function POST(request: Request) {
       }
     }
     const workingEmployees = Array.from(employeeMap.values());
-    const actualStaffCount = workingEmployees.length;
+    const fullTimeEmployees = workingEmployees.filter(
+      (emp) => emp.employmentType !== 'PART_TIME'
+    );
+    const fullTimeStaffCount = fullTimeEmployees.length;
 
-    // Calculate Bonus using Bonus Engine
-    const bonusResult = calculateDailySalesBonus(salesAmount, actualStaffCount);
+    // Calculate Bonus using Bonus Engine based strictly on Full Time staff count
+    const bonusResult = calculateDailySalesBonus(salesAmount, fullTimeStaffCount);
 
     // Clear previous bonus payouts for this dailySales record
     await prisma.bonusPayout.deleteMany({
       where: { dailySalesId: dailySales.id },
     });
 
-    // If qualified and bonus > 0, generate payout records for each working staff
+    // If qualified and bonus > 0, generate payout records ONLY for FULL TIME staff
     const createdPayouts = [];
     if (bonusResult.isQualified && bonusResult.bonusPerPerson > 0) {
-      for (const emp of workingEmployees) {
+      for (const emp of fullTimeEmployees) {
         const payout = await prisma.bonusPayout.create({
           data: {
             dailySalesId: dailySales.id,
@@ -128,7 +131,8 @@ export async function POST(request: Request) {
       message: 'บันทึกยอดขายและประมวลผลโบนัสประจำวันเรียบร้อยแล้ว',
       dailySales,
       bonusResult,
-      workingStaffCount: actualStaffCount,
+      workingStaffCount: workingEmployees.length,
+      fullTimeStaffCount,
       payouts: createdPayouts,
     });
   } catch (error: any) {

@@ -118,10 +118,11 @@ export async function POST(request: Request) {
         }
       }
       const workingStaff = Array.from(empMap.values());
-      const workingCount = workingStaff.length;
+      const fullTimeStaff = workingStaff.filter((emp) => emp.employmentType !== 'PART_TIME');
+      const fullTimeCount = fullTimeStaff.length;
 
-      // Calculate Bonus
-      const bonusResult = calculateDailySalesBonus(item.totalSales, workingCount);
+      // Calculate Bonus based strictly on Full Time staff count
+      const bonusResult = calculateDailySalesBonus(item.totalSales, fullTimeCount);
 
       // Clear previous payouts
       await prisma.bonusPayout.deleteMany({
@@ -130,7 +131,7 @@ export async function POST(request: Request) {
 
       const payouts = [];
       if (bonusResult.isQualified && bonusResult.bonusPerPerson > 0) {
-        for (const emp of workingStaff) {
+        for (const emp of fullTimeStaff) {
           const p = await prisma.bonusPayout.create({
             data: {
               dailySalesId: dailySales.id,
@@ -150,7 +151,7 @@ export async function POST(request: Request) {
         dateStr: item.dateStr,
         branchName: targetBranch.name,
         totalSales: item.totalSales,
-        workingStaffCount: workingCount,
+        workingStaffCount: workingStaff.length,
         bonusPerPerson: bonusResult.bonusPerPerson,
         totalBonusPool: bonusResult.totalBonusPool,
         reason: bonusResult.reason,

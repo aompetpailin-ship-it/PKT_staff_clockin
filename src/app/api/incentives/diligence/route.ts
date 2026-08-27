@@ -65,7 +65,8 @@ export async function GET(request: Request) {
         monthYear,
         lateCount,
         leaveCount,
-        absentCount
+        absentCount,
+        emp.employmentType
       );
 
       // Save/update MonthlyDiligence record

@@ -27,7 +27,7 @@ export async function GET(request: Request) {
         include: { branch: true },
       });
 
-      // Find all bonus payouts for this month
+      // Find all bonus payouts for this month with branch details
       const bonusPayouts = await prisma.bonusPayout.findMany({
         where: {
           employeeId: emp.id,
@@ -35,9 +35,67 @@ export async function GET(request: Request) {
             startsWith: monthYear,
           },
         },
+        include: {
+          dailySales: {
+            include: { branch: true },
+          },
+        },
+        orderBy: { dateStr: 'asc' },
       });
 
       const totalBonusAmount = bonusPayouts.reduce((sum, p) => sum + p.amount, 0);
+
+      const bonusDetails = await Promise.all(
+        bonusPayouts.map(async (p) => {
+          let shiftStaffText = '';
+          let shiftStaffCount = 0;
+          let fullTimeCount = 0;
+          let partTimeCount = 0;
+          let shiftStaffList: { id: string; name: string; fullName: string; employmentType: string }[] = [];
+
+          if (p.dailySales?.branchId) {
+            const shiftAttendances = await prisma.attendance.findMany({
+              where: {
+                dateStr: p.dateStr,
+                branchId: p.dailySales.branchId,
+              },
+              include: { employee: true },
+              orderBy: { clockInAt: 'asc' },
+            });
+
+            shiftStaffCount = shiftAttendances.length;
+            shiftStaffList = shiftAttendances.map((att) => ({
+              id: att.employee.id,
+              name: att.employee.nickname || att.employee.fullName.split(' ')[0],
+              fullName: att.employee.fullName,
+              employmentType: att.employee.employmentType || 'FULL_TIME',
+            }));
+
+            fullTimeCount = shiftStaffList.filter((s) => s.employmentType !== 'PART_TIME').length;
+            partTimeCount = shiftStaffList.filter((s) => s.employmentType === 'PART_TIME').length;
+            
+            const nameStrings = shiftStaffList.map((s) => s.name);
+            shiftStaffText = shiftStaffCount > 0
+              ? `👥 เข้างาน ${shiftStaffCount} คน (${nameStrings.join(', ')})`
+              : '👥 ไม่พบข้อมูลการเข้างาน';
+          }
+
+          return {
+            id: p.id,
+            dateStr: p.dateStr,
+            amount: p.amount,
+            reason: p.reason,
+            branchName: p.dailySales?.branch?.name || 'ไม่ทราบสาขา',
+            branchCode: p.dailySales?.branch?.code || 'N/A',
+            totalSales: p.dailySales?.totalSales || 0,
+            shiftStaffCount,
+            fullTimeCount,
+            partTimeCount,
+            shiftStaffList,
+            shiftStaffText,
+          };
+        })
+      );
 
       // Branch breakdown stats
       const branchStatsMap: Record<string, { branchId: string; branchName: string; branchCode: string; count: number }> = {};
@@ -85,6 +143,7 @@ export async function GET(request: Request) {
         totalLateMinutes,
         onTimeRate,
         totalBonusAmount,
+        bonusDetails,
         branchBreakdown,
       });
     }

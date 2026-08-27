@@ -20,8 +20,22 @@ export function evaluateMonthlyDiligence(
   monthYear: string,
   lateCount: number,
   leaveCount: number,
-  absentCount: number
+  absentCount: number,
+  employmentType?: string
 ): DiligenceEvaluationResult {
+  if (employmentType === 'PART_TIME') {
+    return {
+      employeeId,
+      monthYear,
+      lateCount,
+      leaveCount,
+      absentCount,
+      isEligible: false,
+      allowanceAmount: 0,
+      reason: 'พนักงาน Part-Time ไม่มีสิทธิ์รับเบี้ยขยัน (เฉพาะ Full-Time)',
+    };
+  }
+
   if (absentCount > 0) {
     return {
       employeeId,

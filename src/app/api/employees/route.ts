@@ -14,55 +14,10 @@ export async function GET(request: Request) {
       return NextResponse.json({ success: true, employee });
     }
 
-    let employees = await prisma.employee.findMany({
+    const employees = await prisma.employee.findMany({
       include: { homeBranch: true },
       orderBy: { fullName: 'asc' },
     });
-
-    // Auto-seed default sample employees if DB is empty
-    if (employees.length === 0) {
-      const branches = await prisma.branch.findMany();
-      if (branches.length > 0) {
-        const homeB = branches[0];
-        const defaultEmps = [
-          {
-            lineUserId: 'LINE_EMP_001',
-            fullName: 'สมชาย ใจดี',
-            nickname: 'ชาย',
-            pinCode: '1234',
-            phone: '0812345678',
-            role: 'STAFF',
-            employmentType: 'FULL_TIME',
-            homeBranchId: homeB.id,
-            canRoam: true,
-          },
-          {
-            lineUserId: 'LINE_EMP_002',
-            fullName: 'สมหญิง รักงาน',
-            nickname: 'หญิง',
-            pinCode: '1234',
-            phone: '0823456789',
-            role: 'STAFF',
-            employmentType: 'FULL_TIME',
-            homeBranchId: homeB.id,
-            canRoam: true,
-          },
-        ];
-
-        for (const emp of defaultEmps) {
-          await prisma.employee.upsert({
-            where: { lineUserId: emp.lineUserId },
-            update: {},
-            create: emp,
-          });
-        }
-
-        employees = await prisma.employee.findMany({
-          include: { homeBranch: true },
-          orderBy: { fullName: 'asc' },
-        });
-      }
-    }
 
     return NextResponse.json({ success: true, employees });
   } catch (error: any) {
@@ -146,6 +101,40 @@ export async function POST(request: Request) {
     }
 
     return NextResponse.json({ success: true, employee });
+  } catch (error: any) {
+    return NextResponse.json(
+      { success: false, error: error.message },
+      { status: 500 }
+    );
+  }
+}
+
+export async function DELETE(request: Request) {
+  try {
+    const { searchParams } = new URL(request.url);
+    const id = searchParams.get('id');
+
+    if (!id) {
+      return NextResponse.json(
+        { success: false, error: 'กรุณาระบุ ID พนักงานที่ต้องการลบ' },
+        { status: 400 }
+      );
+    }
+
+    // Delete dependent records first to maintain data integrity
+    await prisma.bonusPayout.deleteMany({ where: { employeeId: id } });
+    await prisma.attendance.deleteMany({ where: { employeeId: id } });
+    await prisma.leaveRecord.deleteMany({ where: { employeeId: id } });
+    await prisma.monthlyDiligence.deleteMany({ where: { employeeId: id } });
+
+    await prisma.employee.delete({
+      where: { id },
+    });
+
+    return NextResponse.json({
+      success: true,
+      message: 'ลบข้อมูลพนักงานเรียบร้อยแล้ว',
+    });
   } catch (error: any) {
     return NextResponse.json(
       { success: false, error: error.message },

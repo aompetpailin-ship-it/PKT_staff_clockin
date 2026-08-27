@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { calculateDistanceMeters } from '@/lib/geofence';
 
 interface Branch {
@@ -35,8 +35,7 @@ export default function StaffClockInPage() {
   // Device Fingerprint ID
   const [deviceId, setDeviceId] = useState<string>('');
 
-  // Verification Mode: 'PHOTO' or 'PIN'
-  const [verificationMode, setVerificationMode] = useState<'PHOTO' | 'PIN'>('PHOTO');
+  // PIN Verification State
   const [pinCodeInput, setPinCodeInput] = useState<string>('');
 
   // GPS State
@@ -45,12 +44,6 @@ export default function StaffClockInPage() {
   const [isWithinGeofence, setIsWithinGeofence] = useState<boolean | null>(null);
   const [gpsError, setGpsError] = useState<string | null>(null);
   const [isGettingGps, setIsGettingGps] = useState<boolean>(false);
-
-  // Camera State
-  const [photoUrl, setPhotoUrl] = useState<string | null>(null);
-  const [isCameraActive, setIsCameraActive] = useState<boolean>(false);
-  const videoRef = useRef<HTMLVideoElement | null>(null);
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   // Feedback & Loading
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
@@ -164,56 +157,6 @@ export default function StaffClockInPage() {
     );
   };
 
-  // Start Camera
-  const startCamera = async () => {
-    setIsCameraActive(true);
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'user' },
-      });
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-      }
-    } catch (err) {
-      console.error(err);
-      alert('ไม่สามารถเปิดกล้องถ่ายรูปได้ ท่านสามารถเลือกลงเวลาด้วยรหัส PIN ได้ครับ');
-      setIsCameraActive(false);
-    }
-  };
-
-  // Capture Photo from Camera
-  const capturePhoto = () => {
-    if (videoRef.current && canvasRef.current) {
-      const context = canvasRef.current.getContext('2d');
-      if (context) {
-        canvasRef.current.width = videoRef.current.videoWidth || 320;
-        canvasRef.current.height = videoRef.current.videoHeight || 240;
-        context.drawImage(videoRef.current, 0, 0, canvasRef.current.width, canvasRef.current.height);
-        const dataUrl = canvasRef.current.toDataURL('image/jpeg', 0.8);
-        setPhotoUrl(dataUrl);
-        
-        // Stop camera stream
-        const stream = videoRef.current.srcObject as MediaStream;
-        if (stream) {
-          stream.getTracks().forEach((track) => track.stop());
-        }
-        setIsCameraActive(false);
-      }
-    }
-  };
-
-  // Upload Photo File fallback
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setPhotoUrl(reader.result as string);
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
   // Handle Clock In
   const handleClockIn = async () => {
     setAlertMsg(null);
@@ -230,13 +173,7 @@ export default function StaffClockInPage() {
       setAlertMsg({ type: 'error', text: 'กรุณากดปุ่มดึงพิกัด GPS ปัจจุบันก่อนลงเวลา' });
       return;
     }
-
-    if (verificationMode === 'PHOTO' && !photoUrl) {
-      setAlertMsg({ type: 'error', text: 'กรุณาถ่ายรูปใบหน้า หรือเลือกวิธียืนยันด้วยรหัส PIN ประจำตัว' });
-      return;
-    }
-
-    if (verificationMode === 'PIN' && !pinCodeInput) {
+    if (!pinCodeInput) {
       setAlertMsg({ type: 'error', text: 'กรุณากรอกรหัส PIN ประจำตัวพนักงาน 4 หลัก' });
       return;
     }
@@ -252,16 +189,14 @@ export default function StaffClockInPage() {
           latitude: gpsLocation.lat,
           longitude: gpsLocation.lng,
           deviceId,
-          verificationMethod: verificationMode === 'PIN' ? 'PIN_CODE' : 'PHOTO_SELFIE',
-          photoUrl: verificationMode === 'PHOTO' ? photoUrl : null,
-          pinCode: verificationMode === 'PIN' ? pinCodeInput : null,
+          verificationMethod: 'PIN_CODE',
+          pinCode: pinCodeInput,
         }),
       });
 
       const data = await res.json();
       if (data.success) {
         setAlertMsg({ type: 'success', text: data.message });
-        setPhotoUrl(null);
         setPinCodeInput('');
         fetchTodayLogs(selectedEmpId);
       } else {
@@ -366,11 +301,15 @@ export default function StaffClockInPage() {
             onChange={(e) => setSelectedEmpId(e.target.value)}
             className="w-full p-3 bg-slate-50 border border-slate-300 text-slate-900 rounded-xl text-xs font-bold focus:ring-2 focus:ring-red-500 outline-none transition"
           >
-            {employees.map((emp) => (
-              <option key={emp.id} value={emp.id}>
-                {emp.fullName} ({emp.nickname || emp.role}) [{emp.employmentType === 'PART_TIME' ? 'Part-Time' : 'Full-Time'}]
-              </option>
-            ))}
+            {employees.length === 0 ? (
+              <option value="">กรุณาเพิ่มข้อมูลพนักงานก่อนลงเวลา</option>
+            ) : (
+              employees.map((emp) => (
+                <option key={emp.id} value={emp.id}>
+                  {emp.fullName} ({emp.nickname || emp.role}) [{emp.employmentType === 'PART_TIME' ? 'Part-Time' : 'Full-Time'}]
+                </option>
+              ))
+            )}
           </select>
         </div>
 
@@ -433,102 +372,24 @@ export default function StaffClockInPage() {
           )}
         </div>
 
-        {/* VERIFICATION METHOD TOGGLE: PHOTO vs PIN */}
+        {/* PIN CODE ENTRY VERIFICATION */}
         <div className="space-y-3 pt-1 border-t border-slate-200">
-          <label className="block text-xs font-black text-slate-800">
-            🔐 เลือกระธีวิธียืนยันตัวตนก่อนเข้างาน:
-          </label>
-
-          <div className="grid grid-cols-2 gap-2">
-            <button
-              type="button"
-              onClick={() => setVerificationMode('PHOTO')}
-              className={`py-2 px-3 rounded-xl text-xs font-black transition border ${
-                verificationMode === 'PHOTO'
-                  ? 'bg-red-600 text-white border-red-600 shadow'
-                  : 'bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200'
-              }`}
-            >
-              📸 ถ่ายรูป Selfie
-            </button>
-            <button
-              type="button"
-              onClick={() => setVerificationMode('PIN')}
-              className={`py-2 px-3 rounded-xl text-xs font-black transition border ${
-                verificationMode === 'PIN'
-                  ? 'bg-red-600 text-white border-red-600 shadow'
-                  : 'bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200'
-              }`}
-            >
-              🔑 รหัส PIN พนักงาน
-            </button>
+          <div className="p-4 bg-slate-50 border border-slate-300 rounded-2xl space-y-2">
+            <label className="block text-xs font-bold text-slate-800">
+              🔑 กรอกรหัส PIN ประจำตัวพนักงาน (4 หลัก):
+            </label>
+            <input
+              type="password"
+              maxLength={6}
+              placeholder="กรอกรหัส PIN (เช่น: 1234)"
+              value={pinCodeInput}
+              onChange={(e) => setPinCodeInput(e.target.value)}
+              className="w-full p-3 bg-white border border-slate-300 text-slate-900 rounded-xl font-mono text-center font-black text-base tracking-widest focus:ring-2 focus:ring-red-500 outline-none"
+            />
+            <p className="text-[11px] text-slate-500 text-center">
+              🛡️ มีระบบล็อกเครื่อง: โทรศัพท์ 1 เครื่องใช้ลงเวลาได้เฉพาะพนักงานเจ้าของเครื่องเท่านั้น
+            </p>
           </div>
-
-          {/* OPTION 1: PHOTO CAPTURE */}
-          {verificationMode === 'PHOTO' && (
-            <div className="space-y-2.5 pt-1">
-              {isCameraActive && (
-                <div className="relative rounded-2xl overflow-hidden bg-black aspect-video flex items-center justify-center border-2 border-red-500/50 shadow-lg">
-                  <video ref={videoRef} autoPlay playsInline className="w-full h-full object-cover" />
-                  <button
-                    onClick={capturePhoto}
-                    className="absolute bottom-3 bg-red-600 text-white font-black px-5 py-2 rounded-full text-xs shadow-xl hover:bg-red-500 transition"
-                  >
-                    📷 กดถ่ายรูป
-                  </button>
-                </div>
-              )}
-
-              {!isCameraActive && photoUrl && (
-                <div className="relative rounded-2xl overflow-hidden border-2 border-slate-300 aspect-video bg-slate-100 flex items-center justify-center shadow">
-                  {/* eslint-disable-next-html-extension/no-img-element */}
-                  <img src={photoUrl} alt="Selfie" className="w-full h-full object-cover" />
-                  <button
-                    onClick={() => setPhotoUrl(null)}
-                    className="absolute top-2 right-2 bg-red-600 hover:bg-red-500 text-white text-xs px-2.5 py-1 rounded-lg font-bold shadow"
-                  >
-                    ✕ ถ่ายใหม่
-                  </button>
-                </div>
-              )}
-
-              {!isCameraActive && !photoUrl && (
-                <div className="flex gap-2">
-                  <button
-                    onClick={startCamera}
-                    className="flex-1 bg-slate-900 hover:bg-slate-800 text-white font-bold py-3 rounded-xl text-xs flex items-center justify-center gap-1.5 transition shadow"
-                  >
-                    📷 เปิดกล้องถ่ายรูป
-                  </button>
-                  <label className="bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold py-3 px-3 rounded-xl text-xs cursor-pointer border border-slate-300 transition flex items-center justify-center">
-                    📁 อัปโหลดไฟล์
-                    <input type="file" accept="image/*" onChange={handleFileUpload} className="hidden" />
-                  </label>
-                </div>
-              )}
-              <canvas ref={canvasRef} className="hidden" />
-            </div>
-          )}
-
-          {/* OPTION 2: PIN CODE ENTRY */}
-          {verificationMode === 'PIN' && (
-            <div className="p-4 bg-slate-50 border border-slate-300 rounded-2xl space-y-2">
-              <label className="block text-xs font-bold text-slate-800">
-                🔑 กรอกรหัส PIN ประจำตัวพนักงาน (4 หลัก):
-              </label>
-              <input
-                type="password"
-                maxLength={6}
-                placeholder="กรอกรหัส PIN (เริ่มต้น: 1234)"
-                value={pinCodeInput}
-                onChange={(e) => setPinCodeInput(e.target.value)}
-                className="w-full p-3 bg-white border border-slate-300 text-slate-900 rounded-xl font-mono text-center font-black text-base tracking-widest focus:ring-2 focus:ring-red-500 outline-none"
-              />
-              <p className="text-[11px] text-slate-500 text-center">
-                🛡️ มีระบบล็อกเครื่อง: โทรศัพท์ 1 เครื่องใช้ลงเวลาได้เฉพาะพนักงานเจ้าของเครื่องเท่านั้น
-              </p>
-            </div>
-          )}
         </div>
 
         {/* Action Clock In / Clock Out Buttons */}
@@ -552,44 +413,46 @@ export default function StaffClockInPage() {
       </div>
 
       {/* Today Attendance Log Summary */}
-      <div className="bg-white rounded-3xl p-5 shadow-xl border border-slate-200 space-y-3">
-        <h3 className="text-xs font-black text-slate-800 flex items-center gap-1.5">
-          <span>📋 ประวัติการเข้างานวันนี้ ({selectedEmp?.fullName})</span>
-        </h3>
+      {selectedEmp && (
+        <div className="bg-white rounded-3xl p-5 shadow-xl border border-slate-200 space-y-3">
+          <h3 className="text-xs font-black text-slate-800 flex items-center gap-1.5">
+            <span>📋 ประวัติการเข้างานวันนี้ ({selectedEmp.fullName})</span>
+          </h3>
 
-        {todayLogs.length === 0 ? (
-          <p className="text-xs text-slate-400 py-3 text-center">ยังไม่มีประวัติการเข้างานในวันนี้</p>
-        ) : (
-          <div className="space-y-2">
-            {todayLogs.map((log) => (
-              <div key={log.id} className="p-3 bg-slate-50 rounded-2xl border border-slate-200 text-xs space-y-1.5">
-                <div className="flex justify-between items-center font-bold">
-                  <span className="text-red-600 font-extrabold">🏪 {log.branch?.name}</span>
-                  <span
-                    className={`px-2.5 py-0.5 rounded-full text-[10px] font-black text-white ${
-                      log.status === 'ON_TIME' ? 'bg-emerald-600' : 'bg-amber-600'
-                    }`}
-                  >
-                    {log.status === 'ON_TIME' ? 'ตรงเวลา' : `สาย ${log.lateMinutes} นาที`}
-                  </span>
+          {todayLogs.length === 0 ? (
+            <p className="text-xs text-slate-400 py-3 text-center">ยังไม่มีประวัติการเข้างานในวันนี้</p>
+          ) : (
+            <div className="space-y-2">
+              {todayLogs.map((log) => (
+                <div key={log.id} className="p-3 bg-slate-50 rounded-2xl border border-slate-200 text-xs space-y-1.5">
+                  <div className="flex justify-between items-center font-bold">
+                    <span className="text-red-600 font-extrabold">🏪 {log.branch?.name}</span>
+                    <span
+                      className={`px-2.5 py-0.5 rounded-full text-[10px] font-black text-white ${
+                        log.status === 'ON_TIME' ? 'bg-emerald-600' : 'bg-amber-600'
+                      }`}
+                    >
+                      {log.status === 'ON_TIME' ? 'ตรงเวลา' : `สาย ${log.lateMinutes} นาที`}
+                    </span>
+                  </div>
+                  <div className="text-slate-600 flex justify-between font-mono text-[11px]">
+                    <span>เข้างาน: {new Date(log.clockInAt).toLocaleTimeString('th-TH')}</span>
+                    <span>
+                      ออกงาน:{' '}
+                      {log.clockOutAt ? new Date(log.clockOutAt).toLocaleTimeString('th-TH') : 'ยังไม่ออกงาน'}
+                    </span>
+                  </div>
+                  {log.notes && (
+                    <p className="text-[10px] text-slate-600 italic bg-white p-1.5 rounded-xl border border-slate-200">
+                      📌 {log.notes}
+                    </p>
+                  )}
                 </div>
-                <div className="text-slate-600 flex justify-between font-mono text-[11px]">
-                  <span>เข้างาน: {new Date(log.clockInAt).toLocaleTimeString('th-TH')}</span>
-                  <span>
-                    ออกงาน:{' '}
-                    {log.clockOutAt ? new Date(log.clockOutAt).toLocaleTimeString('th-TH') : 'ยังไม่ออกงาน'}
-                  </span>
-                </div>
-                {log.notes && (
-                  <p className="text-[10px] text-slate-600 italic bg-white p-1.5 rounded-xl border border-slate-200">
-                    📌 {log.notes}
-                  </p>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
