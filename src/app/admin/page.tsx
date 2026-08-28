@@ -951,7 +951,7 @@ export default function AdminDashboardPage() {
             }`}
           >
             <span className="text-base">📋</span>
-            <span>ประวัติเข้างาน & Selfie</span>
+            <span>ประวัติลงเวลาเข้างาน</span>
           </button>
 
           <button
@@ -2027,14 +2027,13 @@ export default function AdminDashboardPage() {
       {activeTab === 'logs' && (
         <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-4">
           <h2 className="font-bold text-slate-900 text-base">
-            📋 ประวัติลงเวลาเข้า-ออกงานและภาพถ่าย Selfie ({formatThaiMonth(selectedMonthYear)})
+            📋 ประวัติลงเวลาเข้า-ออกงาน ({formatThaiMonth(selectedMonthYear)})
           </h2>
 
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs border-collapse">
               <thead>
                 <tr className="bg-slate-100 text-slate-700 font-bold border-b border-slate-200">
-                  <th className="p-3">รูปถ่าย Selfie</th>
                   <th className="p-3">วันที่ / เวลาเข้างาน</th>
                   <th className="p-3">พนักงาน</th>
                   <th className="p-3">วิธียืนยันตัวตน</th>
@@ -2046,23 +2045,11 @@ export default function AdminDashboardPage() {
               <tbody className="divide-y divide-slate-200">
                 {attendanceLogs.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="p-4 text-center text-slate-400">ยังไม่มีประวัติการเข้างานในเดือนนี้</td>
+                    <td colSpan={6} className="p-4 text-center text-slate-400">ยังไม่มีประวัติการเข้างานในเดือนนี้</td>
                   </tr>
                 ) : (
                   attendanceLogs.map((log) => (
                     <tr key={log.id} className="hover:bg-slate-50">
-                      <td className="p-2">
-                        {log.clockInPhotoUrl ? (
-                          // eslint-disable-next-html-extension/no-img-element
-                          <img
-                            src={log.clockInPhotoUrl}
-                            alt="Selfie"
-                            className="w-12 h-12 rounded-xl object-cover border border-slate-300 shadow-sm"
-                          />
-                        ) : (
-                          <span className="text-slate-400 italic">ไม่มีรูป (ใช้ PIN)</span>
-                        )}
-                      </td>
                       <td className="p-3 font-medium text-slate-900">
                         {log.dateStr}
                         <br />
@@ -2078,7 +2065,7 @@ export default function AdminDashboardPage() {
                           </span>
                         ) : (
                           <span className="text-sky-800 bg-sky-100 border border-sky-300 px-2 py-0.5 rounded text-[10px]">
-                            📸 ถ่ายรูป Selfie
+                            🔑 รหัส PIN ประจำตัว
                           </span>
                         )}
                       </td>
