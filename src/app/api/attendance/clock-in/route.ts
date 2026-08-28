@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { checkGeofence } from '@/lib/geofence';
 import { sendLineGroupNotification } from '@/lib/line';
 import { syncToGoogleSheets } from '@/lib/googleSheets';
+import { getThaiNow, getThaiDateStr } from '@/lib/dateUtils';
 
 export async function POST(request: Request) {
   try {
@@ -127,8 +128,8 @@ export async function POST(request: Request) {
       }, { status: 400 });
     }
 
-    const now = new Date();
-    const dateStr = now.toISOString().split('T')[0];
+    const now = getThaiNow();
+    const dateStr = getThaiDateStr();
     const dayOfWeek = now.getDay(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
 
     // Check if active clock-in exists for today

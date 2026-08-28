@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import BranchPieChart from '@/components/BranchPieChart';
+import { getThaiDateStr, getThaiMonthYearStr } from '@/lib/dateUtils';
 
 const THAI_MONTH_NAMES = [
   'มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน',
@@ -57,7 +58,7 @@ export default function AdminDashboardPage() {
   const [activeTab, setActiveTab] = useState<'branches' | 'employees' | 'logs' | 'bonus' | 'diligence' | 'performance' | 'leaves' | 'payroll'>('performance');
 
   // Global Month Filter State (e.g. "2026-08")
-  const [selectedMonthYear, setSelectedMonthYear] = useState<string>(new Date().toISOString().slice(0, 7));
+  const [selectedMonthYear, setSelectedMonthYear] = useState<string>(getThaiMonthYearStr());
   const recentMonthsOptions = generateMonthsOptions(12);
 
   // Data states
@@ -68,14 +69,14 @@ export default function AdminDashboardPage() {
   
   // Daily Sales & Bonus Form State
   const [salesBranchId, setSalesBranchId] = useState<string>('');
-  const [salesDateStr, setSalesDateStr] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [salesDateStr, setSalesDateStr] = useState<string>(getThaiDateStr());
   const [salesAmount, setSalesAmount] = useState<string>('');
   const [salesRecords, setSalesRecords] = useState<any[]>([]);
   const [salesFeedback, setSalesFeedback] = useState<any>(null);
 
   // Bulk CSV / Google Sheet State
   const [csvInputText, setCsvInputText] = useState<string>(
-    `date,branchCode,totalSales\n${new Date().toISOString().split('T')[0]},B1,22000\n${new Date().toISOString().split('T')[0]},B2,30000\n${new Date().toISOString().split('T')[0]},B3,18000\n${new Date().toISOString().split('T')[0]},B4,45000`
+    `date,branchCode,totalSales\n${getThaiDateStr()},B1,22000\n${getThaiDateStr()},B2,30000\n${getThaiDateStr()},B3,18000\n${getThaiDateStr()},B4,45000`
   );
   const [bulkImportResults, setBulkImportResults] = useState<any>(null);
   const [isImporting, setIsImporting] = useState<boolean>(false);
@@ -86,8 +87,8 @@ export default function AdminDashboardPage() {
   // Leave Management State
   const [leaveRecords, setLeaveRecords] = useState<any[]>([]);
   const [leaveEmpId, setLeaveEmpId] = useState<string>('');
-  const [leaveStartDate, setLeaveStartDate] = useState<string>(new Date().toISOString().split('T')[0]);
-  const [leaveEndDate, setLeaveEndDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [leaveStartDate, setLeaveStartDate] = useState<string>(getThaiDateStr());
+  const [leaveEndDate, setLeaveEndDate] = useState<string>(getThaiDateStr());
   const [leaveType, setLeaveType] = useState<string>('SICK_LEAVE');
   const [leaveReason, setLeaveReason] = useState<string>('');
 
@@ -123,6 +124,7 @@ export default function AdminDashboardPage() {
     employmentType: 'FULL_TIME',
     homeBranchId: '',
     canRoam: true,
+    avatarUrl: '',
   });
 
   // Check login cookie on load
@@ -573,6 +575,7 @@ export default function AdminDashboardPage() {
           employmentType: 'FULL_TIME',
           homeBranchId: branches[0]?.id || '',
           canRoam: true,
+          avatarUrl: '',
         });
         fetchEmployees();
         fetchPerformanceReport(selectedMonthYear);
@@ -628,6 +631,47 @@ export default function AdminDashboardPage() {
     }
   };
 
+  // Image Compress & Base64 Handler
+  const handleImageFileChange = (e: React.ChangeEvent<HTMLInputElement>, isEdit: boolean = false) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let width = img.width;
+        let height = img.height;
+        const maxDim = 400;
+        if (width > height) {
+          if (width > maxDim) {
+            height = Math.round((height * maxDim) / width);
+            width = maxDim;
+          }
+        } else {
+          if (height > maxDim) {
+            width = Math.round((width * maxDim) / height);
+            height = maxDim;
+          }
+        }
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx?.drawImage(img, 0, 0, width, height);
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+
+        if (isEdit && editingEmp) {
+          setEditingEmp((prev: any) => ({ ...prev, avatarUrl: dataUrl }));
+        } else {
+          setNewEmployee((prev: any) => ({ ...prev, avatarUrl: dataUrl }));
+        }
+      };
+      img.src = event.target?.result as string;
+    };
+    reader.readAsDataURL(file);
+  };
+
   // Edit Employee Handler
   const handleSaveEditEmployee = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -645,6 +689,7 @@ export default function AdminDashboardPage() {
           employmentType: editingEmp.employmentType,
           homeBranchId: editingEmp.homeBranchId,
           canRoam: editingEmp.canRoam,
+          avatarUrl: editingEmp.avatarUrl,
         }),
       });
       const data = await res.json();
@@ -762,32 +807,34 @@ export default function AdminDashboardPage() {
 
   return (
     <div className="space-y-6 pb-12">
-      {/* Admin Header + Super Easy Thai Month Selector */}
-      <div className="bg-white text-slate-900 rounded-3xl p-6 shadow-md border border-slate-200 space-y-4">
+      {/* Clean Modern Admin Header */}
+      <div className="bg-white text-slate-900 rounded-2xl p-5 shadow-sm border border-slate-200 space-y-4">
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
           <div>
-            <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-black tracking-tight">⚙️ Admin Dashboard</h1>
-              <span className="bg-slate-100 text-slate-800 border border-slate-300 text-xs font-bold px-3 py-1 rounded-full flex items-center gap-1">
-                👤 ผู้จัดการ: <strong>{adminUser}</strong>
+            <div className="flex items-center gap-3 flex-wrap">
+              <h1 className="text-xl font-extrabold text-slate-900 tracking-tight flex items-center gap-2">
+                <span>⚙️ Admin Dashboard</span>
+              </h1>
+              <span className="bg-slate-100 text-slate-700 border border-slate-200 text-xs font-bold px-3 py-1 rounded-full flex items-center gap-1">
+                👤 ผู้จัดการ: <strong className="text-slate-900">{adminUser}</strong>
               </span>
               <button
                 onClick={handleAdminLogout}
-                className="text-[11px] bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-2.5 py-1 rounded-lg transition border border-slate-300"
+                className="text-[11px] bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-3 py-1 rounded-xl transition border border-slate-200 active:scale-95"
               >
                 🚪 ออกจากระบบ
               </button>
             </div>
-            <p className="text-xs text-slate-500 mt-1">
-              ระบบบริหาร 4 สาขา ร้านผมขอทอด "ที่มันอร่อยเกินไป"
+            <p className="text-xs text-slate-500 font-bold mt-1">
+              ระบบบริหารจัดการ 4 สาขา ร้านผมขอทอด "ที่มันอร่อยเกินไป" (สิทธิ์ผู้จัดการ)
             </p>
           </div>
 
           {/* SUPER EASY THAI MONTH SELECTOR */}
-          <div className="bg-slate-50 p-2.5 rounded-2xl border border-slate-200 shadow-inner flex flex-wrap md:flex-nowrap items-center gap-2 w-full md:w-auto">
+          <div className="bg-slate-50 p-2 rounded-xl border border-slate-200 flex flex-wrap md:flex-nowrap items-center gap-2 w-full md:w-auto">
             <button
               onClick={handlePrevMonth}
-              className="bg-white hover:bg-slate-100 text-slate-800 font-bold px-3 py-2 rounded-xl text-xs transition border border-slate-300 flex items-center gap-1 shadow-sm"
+              className="bg-white hover:bg-slate-100 text-slate-800 font-bold px-3 py-2 rounded-xl text-xs transition border border-slate-200 flex items-center gap-1 shadow-sm active:scale-95"
             >
               <span>◀️ เดือนก่อน</span>
             </button>
@@ -797,7 +844,7 @@ export default function AdminDashboardPage() {
               <select
                 value={selectedMonthYear}
                 onChange={(e) => setSelectedMonthYear(e.target.value)}
-                className="w-full bg-white border border-slate-300 text-slate-900 font-black text-xs md:text-sm px-3.5 py-2 rounded-xl shadow focus:ring-2 focus:ring-red-500 outline-none cursor-pointer"
+                className="w-full bg-white border border-slate-200 text-orange-600 font-bold text-xs md:text-sm px-3.5 py-2 rounded-xl shadow-sm focus:ring-2 focus:ring-orange-500 outline-none cursor-pointer"
               >
                 {recentMonthsOptions.map((opt) => (
                   <option key={opt.value} value={opt.value}>
@@ -809,7 +856,7 @@ export default function AdminDashboardPage() {
 
             <button
               onClick={handleNextMonth}
-              className="bg-white hover:bg-slate-100 text-slate-800 font-bold px-3 py-2 rounded-xl text-xs transition border border-slate-300 flex items-center gap-1 shadow-sm"
+              className="bg-white hover:bg-slate-100 text-slate-800 font-bold px-3 py-2 rounded-xl text-xs transition border border-slate-200 flex items-center gap-1 shadow-sm active:scale-95"
             >
               <span>เดือนถัดไป ▶️</span>
             </button>
@@ -817,9 +864,9 @@ export default function AdminDashboardPage() {
         </div>
 
         {/* Current Active Month Banner Indicator */}
-        <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200 flex items-center justify-between text-xs">
-          <span className="text-slate-600 font-bold">กำลังแสดงผลข้อมูลย้อนหลังประจำเดือน:</span>
-          <span className="bg-red-600 text-white font-black px-3.5 py-1 rounded-full text-xs shadow-sm">
+        <div className="bg-slate-900/80 p-3 rounded-2xl border border-amber-500/30 flex items-center justify-between text-xs relative z-10">
+          <span className="text-amber-200/80 font-bold">กำลังแสดงผลข้อมูลย้อนหลังประจำเดือน:</span>
+          <span className="bg-gradient-to-r from-amber-500 to-amber-600 text-white font-black px-4 py-1 rounded-full text-xs shadow-md border border-amber-400/30">
             ✨ {formatThaiMonth(selectedMonthYear)}
           </span>
         </div>
@@ -2281,9 +2328,23 @@ export default function AdminDashboardPage() {
                   {employees.map((emp) => (
                     <tr key={emp.id} className="hover:bg-slate-50">
                       <td className="p-2.5 font-bold text-slate-900">
-                        {emp.fullName} ({emp.nickname})
-                        <br />
-                        <span className="text-[10px] text-slate-400 font-mono font-normal">{emp.lineUserId}</span>
+                        <div className="flex items-center gap-2.5">
+                          {emp.avatarUrl ? (
+                            <img
+                              src={emp.avatarUrl}
+                              alt={emp.fullName}
+                              className="w-9 h-9 rounded-full object-cover border border-slate-200 shadow-sm flex-shrink-0"
+                            />
+                          ) : (
+                            <div className="w-9 h-9 rounded-full bg-slate-200 text-slate-700 flex items-center justify-center font-black text-sm flex-shrink-0">
+                              {emp.nickname ? emp.nickname[0] : '👤'}
+                            </div>
+                          )}
+                          <div>
+                            <div>{emp.fullName} ({emp.nickname})</div>
+                            <span className="text-[10px] text-slate-400 font-mono font-normal">{emp.lineUserId}</span>
+                          </div>
+                        </div>
                       </td>
                       <td className="p-2.5 font-bold">
                         <span
@@ -2417,6 +2478,24 @@ export default function AdminDashboardPage() {
                   ))}
                 </select>
               </div>
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">🖼️ รูปถ่ายพนักงานประจำตัว (เลือกไฟล์/ถ่ายภาพ):</label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => handleImageFileChange(e, false)}
+                    className="w-full p-2 bg-slate-50 border border-slate-300 rounded-xl text-xs"
+                  />
+                  {newEmployee.avatarUrl && (
+                    <img
+                      src={newEmployee.avatarUrl}
+                      alt="Preview"
+                      className="w-9 h-9 rounded-full object-cover border border-slate-300 flex-shrink-0"
+                    />
+                  )}
+                </div>
+              </div>
               <div className="flex items-center gap-2 pt-2">
                 <input
                   type="checkbox"
@@ -2431,7 +2510,7 @@ export default function AdminDashboardPage() {
                   type="submit"
                   className="w-full bg-red-600 hover:bg-red-700 text-white font-bold p-2.5 rounded-xl transition"
                 >
-                  บันทึกพนักงานใหม่พร้อมรหัส PIN
+                  บันทึกพนักงานใหม่พร้อมรหัส PIN และรูปถ่าย
                 </button>
               </div>
             </form>
@@ -2515,6 +2594,29 @@ export default function AdminDashboardPage() {
                       </option>
                     ))}
                   </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">🖼️ รูปถ่ายประจำตัวพนักงาน (เลือกไฟล์/ถ่ายใหม่):</label>
+                <div className="flex items-center gap-3 bg-slate-50 p-2 border border-slate-300 rounded-xl">
+                  {editingEmp.avatarUrl ? (
+                    <img
+                      src={editingEmp.avatarUrl}
+                      alt="Avatar"
+                      className="w-10 h-10 rounded-full object-cover border border-slate-300 flex-shrink-0"
+                    />
+                  ) : (
+                    <div className="w-10 h-10 rounded-full bg-slate-200 text-slate-700 flex items-center justify-center font-black text-sm flex-shrink-0">
+                      {editingEmp.nickname ? editingEmp.nickname[0] : '👤'}
+                    </div>
+                  )}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => handleImageFileChange(e, true)}
+                    className="w-full text-xs text-slate-600"
+                  />
                 </div>
               </div>
 

@@ -51,6 +51,7 @@ model Employee {
   employmentType String     @default("FULL_TIME") // FULL_TIME, PART_TIME
   homeBranchId   String
   canRoam        Boolean    @default(true)
+  avatarUrl      String?
   createdAt      DateTime   @default(now())
   updatedAt      DateTime   @updatedAt
 

@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 
+export const dynamic = 'force-dynamic';
+
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
@@ -19,7 +21,10 @@ export async function GET(request: Request) {
       orderBy: { fullName: 'asc' },
     });
 
-    return NextResponse.json({ success: true, employees });
+    return NextResponse.json(
+      { success: true, employees },
+      { headers: { 'Cache-Control': 'no-store, max-age=0' } }
+    );
   } catch (error: any) {
     return NextResponse.json(
       { success: false, error: error.message },
@@ -42,6 +47,7 @@ export async function POST(request: Request) {
       employmentType,
       homeBranchId,
       canRoam,
+      avatarUrl,
       resetDeviceBinding,
     } = body;
 
@@ -60,6 +66,7 @@ export async function POST(request: Request) {
           ...(employmentType ? { employmentType } : {}),
           ...(homeBranchId ? { homeBranchId } : {}),
           ...(canRoam !== undefined ? { canRoam: Boolean(canRoam) } : {}),
+          ...(avatarUrl !== undefined ? { avatarUrl } : {}),
           ...(resetDeviceBinding ? { boundDeviceId: null } : {}),
         },
       });
@@ -84,6 +91,7 @@ export async function POST(request: Request) {
           employmentType: employmentType || 'FULL_TIME',
           homeBranchId: bId,
           canRoam: canRoam !== undefined ? Boolean(canRoam) : true,
+          ...(avatarUrl !== undefined ? { avatarUrl } : {}),
           ...(resetDeviceBinding ? { boundDeviceId: null } : {}),
         },
         create: {
@@ -96,6 +104,7 @@ export async function POST(request: Request) {
           employmentType: employmentType || 'FULL_TIME',
           homeBranchId: bId,
           canRoam: canRoam !== undefined ? Boolean(canRoam) : true,
+          avatarUrl: avatarUrl || null,
         },
       });
     }

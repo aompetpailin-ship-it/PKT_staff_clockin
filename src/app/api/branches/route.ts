@@ -1,36 +1,38 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 
+export const dynamic = 'force-dynamic';
+
 const DEFAULT_BRANCHES = [
   {
     code: 'B1',
     name: 'B1_Ladphrao',
-    latitude: 13.814321,
-    longitude: 100.561234,
-    allowedRadiusMeters: 5.0,
+    latitude: 13.8238903,
+    longitude: 100.6115799,
+    allowedRadiusMeters: 100.0,
     shiftStartTime: '09:00',
   },
   {
     code: 'B2',
     name: 'B2_Theprak',
-    latitude: 13.886123,
-    longitude: 100.612345,
+    latitude: 13.8774621,
+    longitude: 100.6461618,
     allowedRadiusMeters: 100.0,
     shiftStartTime: '09:00',
   },
   {
     code: 'B3',
     name: 'B3_Muangthong',
-    latitude: 13.912345,
-    longitude: 100.551234,
+    latitude: 13.912945,
+    longitude: 100.5428759,
     allowedRadiusMeters: 100.0,
     shiftStartTime: '09:00',
   },
   {
     code: 'B4',
     name: 'B4_Pinklao',
-    latitude: 13.771234,
-    longitude: 100.478910,
+    latitude: 13.778585468534606,
+    longitude: 100.4863382529881,
     allowedRadiusMeters: 100.0,
     shiftStartTime: '09:00',
   },
@@ -57,7 +59,10 @@ export async function GET() {
       });
     }
 
-    return NextResponse.json({ success: true, branches });
+    return NextResponse.json(
+      { success: true, branches },
+      { headers: { 'Cache-Control': 'no-store, max-age=0' } }
+    );
   } catch (error: any) {
     return NextResponse.json(
       { success: false, error: error.message },

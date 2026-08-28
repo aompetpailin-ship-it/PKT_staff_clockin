@@ -1,13 +1,14 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { getThaiNow, getThaiDateStr } from '@/lib/dateUtils';
 
 export async function POST(request: Request) {
   try {
     const body = await request.json();
     const { attendanceId, employeeId } = body;
 
-    const now = new Date();
-    const dateStr = now.toISOString().split('T')[0];
+    const now = getThaiNow();
+    const dateStr = getThaiDateStr();
 
     let attendance;
     if (attendanceId) {
