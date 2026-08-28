@@ -864,9 +864,9 @@ export default function AdminDashboardPage() {
         </div>
 
         {/* Current Active Month Banner Indicator */}
-        <div className="bg-slate-900/80 p-3 rounded-2xl border border-amber-500/30 flex items-center justify-between text-xs relative z-10">
-          <span className="text-amber-200/80 font-bold">กำลังแสดงผลข้อมูลย้อนหลังประจำเดือน:</span>
-          <span className="bg-gradient-to-r from-amber-500 to-amber-600 text-white font-black px-4 py-1 rounded-full text-xs shadow-md border border-amber-400/30">
+        <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 flex items-center justify-between text-xs">
+          <span className="text-slate-600 font-bold">กำลังแสดงผลข้อมูลย้อนหลังประจำเดือน:</span>
+          <span className="bg-orange-500 text-white font-bold px-3.5 py-1 rounded-full text-xs shadow-sm">
             ✨ {formatThaiMonth(selectedMonthYear)}
           </span>
         </div>
@@ -886,7 +886,7 @@ export default function AdminDashboardPage() {
             onClick={() => setActiveTab('performance')}
             className={`w-full text-left py-3 px-3.5 rounded-xl transition flex items-center gap-2.5 font-bold text-xs md:text-sm ${
               activeTab === 'performance'
-                ? 'bg-gradient-to-r from-red-600 to-red-700 text-white shadow-md shadow-red-500/20'
+                ? 'bg-orange-500 text-white shadow-sm'
                 : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
             }`}
           >
@@ -898,7 +898,7 @@ export default function AdminDashboardPage() {
             onClick={() => setActiveTab('leaves')}
             className={`w-full text-left py-3 px-3.5 rounded-xl transition flex items-center gap-2.5 font-bold text-xs md:text-sm ${
               activeTab === 'leaves'
-                ? 'bg-gradient-to-r from-red-600 to-red-700 text-white shadow-md shadow-red-500/20'
+                ? 'bg-orange-500 text-white shadow-sm'
                 : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
             }`}
           >
@@ -910,7 +910,7 @@ export default function AdminDashboardPage() {
             onClick={() => setActiveTab('bonus')}
             className={`w-full text-left py-3 px-3.5 rounded-xl transition flex items-center gap-2.5 font-bold text-xs md:text-sm ${
               activeTab === 'bonus'
-                ? 'bg-gradient-to-r from-red-600 to-red-700 text-white shadow-md shadow-red-500/20'
+                ? 'bg-orange-500 text-white shadow-sm'
                 : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
             }`}
           >
@@ -922,7 +922,7 @@ export default function AdminDashboardPage() {
             onClick={() => setActiveTab('diligence')}
             className={`w-full text-left py-3 px-3.5 rounded-xl transition flex items-center gap-2.5 font-bold text-xs md:text-sm ${
               activeTab === 'diligence'
-                ? 'bg-gradient-to-r from-red-600 to-red-700 text-white shadow-md shadow-red-500/20'
+                ? 'bg-orange-500 text-white shadow-sm'
                 : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
             }`}
           >
@@ -934,7 +934,7 @@ export default function AdminDashboardPage() {
             onClick={() => setActiveTab('payroll')}
             className={`w-full text-left py-3 px-3.5 rounded-xl transition flex items-center gap-2.5 font-bold text-xs md:text-sm ${
               activeTab === 'payroll'
-                ? 'bg-gradient-to-r from-red-600 to-red-700 text-white shadow-md shadow-red-500/20 font-black'
+                ? 'bg-orange-500 text-white shadow-sm font-black'
                 : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
             }`}
           >
@@ -946,7 +946,7 @@ export default function AdminDashboardPage() {
             onClick={() => setActiveTab('logs')}
             className={`w-full text-left py-3 px-3.5 rounded-xl transition flex items-center gap-2.5 font-bold text-xs md:text-sm ${
               activeTab === 'logs'
-                ? 'bg-gradient-to-r from-red-600 to-red-700 text-white shadow-md shadow-red-500/20'
+                ? 'bg-orange-500 text-white shadow-sm'
                 : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
             }`}
           >
@@ -958,7 +958,7 @@ export default function AdminDashboardPage() {
             onClick={() => setActiveTab('branches')}
             className={`w-full text-left py-3 px-3.5 rounded-xl transition flex items-center gap-2.5 font-bold text-xs md:text-sm ${
               activeTab === 'branches'
-                ? 'bg-gradient-to-r from-red-600 to-red-700 text-white shadow-md shadow-red-500/20'
+                ? 'bg-orange-500 text-white shadow-sm'
                 : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
             }`}
           >
@@ -970,7 +970,7 @@ export default function AdminDashboardPage() {
             onClick={() => setActiveTab('employees')}
             className={`w-full text-left py-3 px-3.5 rounded-xl transition flex items-center gap-2.5 font-bold text-xs md:text-sm ${
               activeTab === 'employees'
-                ? 'bg-gradient-to-r from-red-600 to-red-700 text-white shadow-md shadow-red-500/20'
+                ? 'bg-orange-500 text-white shadow-sm'
                 : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
             }`}
           >
@@ -2053,7 +2053,7 @@ export default function AdminDashboardPage() {
                       <td className="p-3 font-medium text-slate-900">
                         {log.dateStr}
                         <br />
-                        <span className="text-slate-500">{new Date(log.clockInAt).toLocaleTimeString('th-TH')}</span>
+                        <span className="text-slate-500">{new Date(log.clockInAt).toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok' })}</span>
                       </td>
                       <td className="p-3 font-bold text-slate-900">
                         {log.employee?.fullName} ({log.employee?.nickname})
@@ -2521,6 +2521,8 @@ export default function AdminDashboardPage() {
               </div>
             </form>
           </div>
+        </div>
+      )}
         </div>
       </div>
 

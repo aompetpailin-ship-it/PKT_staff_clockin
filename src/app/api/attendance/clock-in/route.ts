@@ -181,7 +181,7 @@ export async function POST(request: Request) {
       }
     }
 
-    const methodLabel = verificationMethod === 'PIN_CODE' ? '🔑 ยืนยันด้วยรหัส PIN (ล็อกเครื่อง)' : verificationMethod === 'MANAGER_OVERRIDE' ? '👤 ผู้จัดการลงเวลาแทน' : '📸 ยืนยันด้วยรูปถ่าย Selfie';
+    const methodLabel = verificationMethod === 'PIN_CODE' ? '🔑 ยืนยันด้วยรหัส PIN (ล็อกเครื่อง)' : verificationMethod === 'MANAGER_OVERRIDE' ? '👤 ผู้จัดการลงเวลาแทน' : '🔑 ยืนยันด้วยรหัส PIN (ล็อกเครื่อง)';
 
     const statusLabel = status === 'ABSENT' ? `🛑 ขาดงาน (สายเกิน 30 นาที - สาย ${lateMinutes} นาที)` : status === 'LATE' ? `⚠️ มาสาย ${lateMinutes} นาที` : '✅ ตรงเวลา';
 
@@ -208,8 +208,10 @@ export async function POST(request: Request) {
       },
     });
 
+    const thaiFormattedTime = now.toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok' });
+
     // Send LINE Notification Broadcast (if LINE Token configured)
-    const lineMsg = `🟢 [ร้านผมขอทอด] แจ้งเตือนเข้างาน!\n👤 พนักงาน: ${employee.fullName} (${employee.nickname || 'พนักงาน'})\n🏪 สาขา: ${branch.name}\n⏰ เวลา: ${now.toLocaleTimeString('th-TH')} น.\n📌 สถานะ: ${statusLabel}\n🔐 วิธียืนยัน: ${methodLabel}`;
+    const lineMsg = `🟢 [ร้านผมขอทอด] แจ้งเตือนเข้างาน!\n👤 พนักงาน: ${employee.fullName} (${employee.nickname || 'พนักงาน'})\n🏪 สาขา: ${branch.name}\n⏰ เวลา: ${thaiFormattedTime} น.\n📌 สถานะ: ${statusLabel}\n🔐 วิธียืนยัน: ${methodLabel}`;
     sendLineGroupNotification(lineMsg, photoUrl && photoUrl.startsWith('http') ? photoUrl : undefined).catch((err: any) => console.error(err));
 
     // Backup / Sync to Google Sheets
@@ -217,7 +219,7 @@ export async function POST(request: Request) {
       type: 'CLOCK_IN',
       data: {
         dateStr,
-        timeStr: now.toLocaleTimeString('th-TH'),
+        timeStr: thaiFormattedTime,
         employeeName: employee.fullName,
         nickname: employee.nickname,
         branchCode: branch.code,

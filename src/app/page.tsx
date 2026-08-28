@@ -497,10 +497,10 @@ export default function StaffClockInPage() {
                     </span>
                   </div>
                   <div className="text-slate-600 flex justify-between font-mono text-[11px]">
-                    <span>เข้างาน: {new Date(log.clockInAt).toLocaleTimeString('th-TH')}</span>
+                    <span>เข้างาน: {new Date(log.clockInAt).toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok' })}</span>
                     <span>
                       ออกงาน:{' '}
-                      {log.clockOutAt ? new Date(log.clockOutAt).toLocaleTimeString('th-TH') : 'ยังไม่ออกงาน'}
+                      {log.clockOutAt ? new Date(log.clockOutAt).toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok' }) : 'ยังไม่ออกงาน'}
                     </span>
                   </div>
                   {log.notes && (
