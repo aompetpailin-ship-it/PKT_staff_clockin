@@ -159,21 +159,31 @@ export async function POST(request: Request) {
       },
     });
 
-    const shiftTimeStr = specificSchedule ? specificSchedule.shiftStartTime : branch.shiftStartTime;
+    const shiftTimeStr = specificSchedule ? specificSchedule.shiftStartTime : (branch.shiftStartTime || "09:00");
     const [shiftHour, shiftMin] = shiftTimeStr.split(':').map(Number);
-    const shiftTimeToday = new Date(now);
-    shiftTimeToday.setHours(shiftHour, shiftMin, 0, 0);
+
+    const shiftTotalMinutes = shiftHour * 60 + shiftMin;
+    const nowThaiHour = now.getHours();
+    const nowThaiMin = now.getMinutes();
+    const nowTotalMinutes = nowThaiHour * 60 + nowThaiMin;
 
     let lateMinutes = 0;
     let status = 'ON_TIME';
 
-    if (now > shiftTimeToday) {
-      const diffMs = now.getTime() - shiftTimeToday.getTime();
-      lateMinutes = Math.floor(diffMs / (1000 * 60));
-      status = 'LATE';
+    if (nowTotalMinutes > shiftTotalMinutes) {
+      lateMinutes = nowTotalMinutes - shiftTotalMinutes;
+      if (lateMinutes > 30) {
+        status = 'ABSENT'; // เกิน 30 นาทีขึ้นไป ถือเป็นขาดงาน
+      } else if (lateMinutes > 15) {
+        status = 'LATE';   // เกิน 15 นาทีขึ้นไป ถือเป็นมาสาย
+      } else {
+        status = 'ON_TIME'; // อนุโลม 15 นาทีแรก ถือว่าตรงเวลา
+      }
     }
 
     const methodLabel = verificationMethod === 'PIN_CODE' ? '🔑 ยืนยันด้วยรหัส PIN (ล็อกเครื่อง)' : verificationMethod === 'MANAGER_OVERRIDE' ? '👤 ผู้จัดการลงเวลาแทน' : '📸 ยืนยันด้วยรูปถ่าย Selfie';
+
+    const statusLabel = status === 'ABSENT' ? `🛑 ขาดงาน (สายเกิน 30 นาที - สาย ${lateMinutes} นาที)` : status === 'LATE' ? `⚠️ มาสาย ${lateMinutes} นาที` : '✅ ตรงเวลา';
 
     // Save Attendance Record
     const attendance = await prisma.attendance.create({
@@ -199,8 +209,8 @@ export async function POST(request: Request) {
     });
 
     // Send LINE Notification Broadcast (if LINE Token configured)
-    const lineMsg = `🟢 [ร้านผมขอทอด] แจ้งเตือนเข้างาน!\n👤 พนักงาน: ${employee.fullName} (${employee.nickname || 'พนักงาน'})\n🏪 สาขา: ${branch.name}\n⏰ เวลา: ${now.toLocaleTimeString('th-TH')} น.\n📌 สถานะ: ${status === 'LATE' ? `⚠️ มาสาย ${lateMinutes} นาที` : '✅ ตรงเวลา'}\n🔐 วิธียืนยัน: ${methodLabel}`;
-    sendLineGroupNotification(lineMsg, photoUrl && photoUrl.startsWith('http') ? photoUrl : undefined).catch((err) => console.error(err));
+    const lineMsg = `🟢 [ร้านผมขอทอด] แจ้งเตือนเข้างาน!\n👤 พนักงาน: ${employee.fullName} (${employee.nickname || 'พนักงาน'})\n🏪 สาขา: ${branch.name}\n⏰ เวลา: ${now.toLocaleTimeString('th-TH')} น.\n📌 สถานะ: ${statusLabel}\n🔐 วิธียืนยัน: ${methodLabel}`;
+    sendLineGroupNotification(lineMsg, photoUrl && photoUrl.startsWith('http') ? photoUrl : undefined).catch((err: any) => console.error(err));
 
     // Backup / Sync to Google Sheets
     syncToGoogleSheets({
@@ -212,16 +222,16 @@ export async function POST(request: Request) {
         nickname: employee.nickname,
         branchCode: branch.code,
         branchName: branch.name,
-        status: status === 'ON_TIME' ? 'ตรงเวลา' : `สาย ${lateMinutes} นาที`,
+        status: statusLabel,
         lateMinutes,
         verificationMethod,
         notes: attendance.notes,
       },
-    }).catch((err) => console.error(err));
+    }).catch((err: any) => console.error(err));
 
     return NextResponse.json({
       success: true,
-      message: `ลงเวลาเข้างานเรียบร้อยแล้ว (${status === 'LATE' ? `มาสาย ${lateMinutes} นาที` : 'ตรงเวลา'} - ${methodLabel})`,
+      message: `ลงเวลาเข้างานเรียบร้อยแล้ว (${statusLabel} - ${methodLabel})`,
       attendance,
     });
   } catch (error: any) {
