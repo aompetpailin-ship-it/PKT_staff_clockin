@@ -872,96 +872,115 @@ export default function AdminDashboardPage() {
         </div>
       </div>
 
-      {/* Navigation Tabs */}
-      <div className="flex border-b border-slate-200 overflow-x-auto gap-2 text-xs md:text-sm font-bold">
-        <button
-          onClick={() => setActiveTab('performance')}
-          className={`py-2.5 px-4 rounded-t-xl transition border-b-2 ${
-            activeTab === 'performance'
-              ? 'border-red-600 text-red-600 bg-white shadow-sm'
-              : 'border-transparent text-slate-600 hover:text-slate-900'
-          }`}
-        >
-          📈 ประสิทธิภาพพนักงาน & Pie Chart
-        </button>
+      {/* Sidebar + Main Content Grid Container */}
+      <div className="grid grid-cols-1 md:grid-cols-[260px_1fr] lg:grid-cols-[280px_1fr] gap-6 items-start">
+        
+        {/* Left Sidebar Navigation Panel */}
+        <div className="bg-white p-3 rounded-2xl border border-slate-200 shadow-sm space-y-1.5 md:sticky md:top-4 z-20">
+          <div className="px-3 py-2 text-[11px] font-black text-slate-400 uppercase tracking-wider border-b border-slate-100 mb-1 flex items-center justify-between">
+            <span>⚙️ เมนูสั่งการผู้บริหาร</span>
+            <span className="bg-red-100 text-red-700 px-2 py-0.5 rounded-full text-[10px] font-extrabold">8 เมนู</span>
+          </div>
 
-        <button
-          onClick={() => setActiveTab('leaves')}
-          className={`py-2.5 px-4 rounded-t-xl transition border-b-2 ${
-            activeTab === 'leaves'
-              ? 'border-red-600 text-red-600 bg-white shadow-sm'
-              : 'border-transparent text-slate-600 hover:text-slate-900'
-          }`}
-        >
-          📝 บันทึกการลางาน (ล่วงหน้า/ย้อนหลัง)
-        </button>
+          <button
+            onClick={() => setActiveTab('performance')}
+            className={`w-full text-left py-3 px-3.5 rounded-xl transition flex items-center gap-2.5 font-bold text-xs md:text-sm ${
+              activeTab === 'performance'
+                ? 'bg-gradient-to-r from-red-600 to-red-700 text-white shadow-md shadow-red-500/20'
+                : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
+            }`}
+          >
+            <span className="text-base">📈</span>
+            <span>ประสิทธิภาพพนักงาน & Chart</span>
+          </button>
 
-        <button
-          onClick={() => setActiveTab('bonus')}
-          className={`py-2.5 px-4 rounded-t-xl transition border-b-2 ${
-            activeTab === 'bonus'
-              ? 'border-red-600 text-red-600 bg-white shadow-sm'
-              : 'border-transparent text-slate-600 hover:text-slate-900'
-          }`}
-        >
-          💰 บันทึกยอดขาย & CSV Bulk Import
-        </button>
+          <button
+            onClick={() => setActiveTab('leaves')}
+            className={`w-full text-left py-3 px-3.5 rounded-xl transition flex items-center gap-2.5 font-bold text-xs md:text-sm ${
+              activeTab === 'leaves'
+                ? 'bg-gradient-to-r from-red-600 to-red-700 text-white shadow-md shadow-red-500/20'
+                : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
+            }`}
+          >
+            <span className="text-base">📝</span>
+            <span>บันทึกการลางาน</span>
+          </button>
 
-        <button
-          onClick={() => setActiveTab('diligence')}
-          className={`py-2.5 px-4 rounded-t-xl transition border-b-2 ${
-            activeTab === 'diligence'
-              ? 'border-red-600 text-red-600 bg-white shadow-sm'
-              : 'border-transparent text-slate-600 hover:text-slate-900'
-          }`}
-        >
-          🏆 เบี้ยขยันประจำเดือน (500 บาท)
-        </button>
+          <button
+            onClick={() => setActiveTab('bonus')}
+            className={`w-full text-left py-3 px-3.5 rounded-xl transition flex items-center gap-2.5 font-bold text-xs md:text-sm ${
+              activeTab === 'bonus'
+                ? 'bg-gradient-to-r from-red-600 to-red-700 text-white shadow-md shadow-red-500/20'
+                : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
+            }`}
+          >
+            <span className="text-base">💰</span>
+            <span>บันทึกยอดขาย & CSV Import</span>
+          </button>
 
-        <button
-          onClick={() => setActiveTab('payroll')}
-          className={`py-2.5 px-4 rounded-t-xl transition border-b-2 font-black ${
-            activeTab === 'payroll'
-              ? 'border-red-600 text-red-600 bg-white shadow-sm'
-              : 'border-transparent text-slate-600 hover:text-slate-900'
-          }`}
-        >
-          💵 สรุปยอดจ่ายรวม (โบนัส + เบี้ยขยัน)
-        </button>
+          <button
+            onClick={() => setActiveTab('diligence')}
+            className={`w-full text-left py-3 px-3.5 rounded-xl transition flex items-center gap-2.5 font-bold text-xs md:text-sm ${
+              activeTab === 'diligence'
+                ? 'bg-gradient-to-r from-red-600 to-red-700 text-white shadow-md shadow-red-500/20'
+                : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
+            }`}
+          >
+            <span className="text-base">🏆</span>
+            <span>เบี้ยขยันประจำเดือน</span>
+          </button>
 
-        <button
-          onClick={() => setActiveTab('logs')}
-          className={`py-2.5 px-4 rounded-t-xl transition border-b-2 ${
-            activeTab === 'logs'
-              ? 'border-red-600 text-red-600 bg-white shadow-sm'
-              : 'border-transparent text-slate-600 hover:text-slate-900'
-          }`}
-        >
-          📋 ประวัติเข้างาน & Selfie
-        </button>
+          <button
+            onClick={() => setActiveTab('payroll')}
+            className={`w-full text-left py-3 px-3.5 rounded-xl transition flex items-center gap-2.5 font-bold text-xs md:text-sm ${
+              activeTab === 'payroll'
+                ? 'bg-gradient-to-r from-red-600 to-red-700 text-white shadow-md shadow-red-500/20 font-black'
+                : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
+            }`}
+          >
+            <span className="text-base">💵</span>
+            <span>สรุปยอดจ่ายรวม (โบนัส+เบี้ยขยัน)</span>
+          </button>
 
-        <button
-          onClick={() => setActiveTab('branches')}
-          className={`py-2.5 px-4 rounded-t-xl transition border-b-2 ${
-            activeTab === 'branches'
-              ? 'border-red-600 text-red-600 bg-white shadow-sm'
-              : 'border-transparent text-slate-600 hover:text-slate-900'
-          }`}
-        >
-          🏪 4 สาขา & ล็อกพิกัด GPS
-        </button>
+          <button
+            onClick={() => setActiveTab('logs')}
+            className={`w-full text-left py-3 px-3.5 rounded-xl transition flex items-center gap-2.5 font-bold text-xs md:text-sm ${
+              activeTab === 'logs'
+                ? 'bg-gradient-to-r from-red-600 to-red-700 text-white shadow-md shadow-red-500/20'
+                : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
+            }`}
+          >
+            <span className="text-base">📋</span>
+            <span>ประวัติเข้างาน & Selfie</span>
+          </button>
 
-        <button
-          onClick={() => setActiveTab('employees')}
-          className={`py-2.5 px-4 rounded-t-xl transition border-b-2 ${
-            activeTab === 'employees'
-              ? 'border-red-600 text-red-600 bg-white shadow-sm'
-              : 'border-transparent text-slate-600 hover:text-slate-900'
-          }`}
-        >
-          👥 จัดการพนักงาน & กำหนด PIN
-        </button>
-      </div>
+          <button
+            onClick={() => setActiveTab('branches')}
+            className={`w-full text-left py-3 px-3.5 rounded-xl transition flex items-center gap-2.5 font-bold text-xs md:text-sm ${
+              activeTab === 'branches'
+                ? 'bg-gradient-to-r from-red-600 to-red-700 text-white shadow-md shadow-red-500/20'
+                : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
+            }`}
+          >
+            <span className="text-base">🏪</span>
+            <span>4 สาขา & ล็อกพิกัด GPS</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('employees')}
+            className={`w-full text-left py-3 px-3.5 rounded-xl transition flex items-center gap-2.5 font-bold text-xs md:text-sm ${
+              activeTab === 'employees'
+                ? 'bg-gradient-to-r from-red-600 to-red-700 text-white shadow-md shadow-red-500/20'
+                : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
+            }`}
+          >
+            <span className="text-base">👥</span>
+            <span>จัดการพนักงาน & กำหนด PIN</span>
+          </button>
+        </div>
+
+        {/* Right Content Panel */}
+        <div className="min-w-0">
 
       {/* TAB: LEAVE MANAGEMENT */}
       {activeTab === 'leaves' && (
@@ -2516,7 +2535,7 @@ export default function AdminDashboardPage() {
             </form>
           </div>
         </div>
-      )}
+      </div>
 
       {/* EDIT EMPLOYEE MODAL */}
       {editingEmp && (
