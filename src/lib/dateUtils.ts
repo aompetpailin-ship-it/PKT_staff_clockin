@@ -4,9 +4,7 @@
  */
 
 export function getThaiNow(): Date {
-  const now = new Date();
-  const thaiTimeString = now.toLocaleString("en-US", { timeZone: "Asia/Bangkok" });
-  return new Date(thaiTimeString);
+  return new Date();
 }
 
 export function getThaiDateStr(date: Date = new Date()): string {
@@ -22,6 +20,20 @@ export function getThaiDateStr(date: Date = new Date()): string {
 
 export function getThaiMonthYearStr(date: Date = new Date()): string {
   return getThaiDateStr(date).slice(0, 7);
+}
+
+export function getThaiHourAndMinute(date: Date = new Date()): { hour: number; minute: number } {
+  const timeString = date.toLocaleTimeString("en-US", {
+    timeZone: "Asia/Bangkok",
+    hour12: false,
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  const [hourStr, minStr] = timeString.split(':');
+  let hour = parseInt(hourStr, 10);
+  if (hour === 24) hour = 0;
+  const minute = parseInt(minStr, 10);
+  return { hour, minute };
 }
 
 export function getThaiTimeString(date: Date = new Date()): string {

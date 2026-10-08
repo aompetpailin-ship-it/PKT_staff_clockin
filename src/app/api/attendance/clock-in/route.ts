@@ -3,7 +3,8 @@ import { prisma } from '@/lib/prisma';
 import { checkGeofence } from '@/lib/geofence';
 import { sendLineGroupNotification } from '@/lib/line';
 import { syncToGoogleSheets } from '@/lib/googleSheets';
-import { getThaiNow, getThaiDateStr } from '@/lib/dateUtils';
+import { getThaiNow, getThaiDateStr, getThaiHourAndMinute } from '@/lib/dateUtils';
+import { calculateDailySalesBonus } from '@/lib/bonusEngine';
 
 export async function POST(request: Request) {
   try {
@@ -28,10 +29,13 @@ export async function POST(request: Request) {
       );
     }
 
-    // Find Employee
-    const employee = employeeId
-      ? await prisma.employee.findUnique({ where: { id: employeeId } })
-      : await prisma.employee.findUnique({ where: { lineUserId } });
+    // Find Employee and Branch concurrently for maximum speed
+    const [employee, branch] = await Promise.all([
+      employeeId
+        ? prisma.employee.findUnique({ where: { id: employeeId } })
+        : prisma.employee.findUnique({ where: { lineUserId } }),
+      prisma.branch.findUnique({ where: { id: branchId } }),
+    ]);
 
     if (!employee) {
       return NextResponse.json(
@@ -40,17 +44,25 @@ export async function POST(request: Request) {
       );
     }
 
+    if (!branch) {
+      return NextResponse.json(
+        { success: false, error: 'ไม่พบสาขาที่เลือก' },
+        { status: 404 }
+      );
+    }
+
     // ANTI-PROXY DEVICE BINDING SECURITY (ป้องกันการใช้เครื่องเดียวกันกดแทนกัน)
     if (deviceId) {
       if (!employee.boundDeviceId) {
         // First time clock-in: bind this phone device to employee
-        await prisma.employee.update({
-          where: { id: employee.id },
-          data: { boundDeviceId: deviceId },
-        });
+        prisma.employee
+          .update({
+            where: { id: employee.id },
+            data: { boundDeviceId: deviceId },
+          })
+          .catch((err) => console.error('[Device Binding Error]', err));
       } else if (employee.boundDeviceId !== deviceId) {
         // Device mismatch! Phone belongs to someone else!
-        // Find who owns this device
         const deviceOwner = await prisma.employee.findFirst({
           where: { boundDeviceId: deviceId },
         });
@@ -91,15 +103,6 @@ export async function POST(request: Request) {
       }
     }
 
-    // Find Branch
-    const branch = await prisma.branch.findUnique({ where: { id: branchId } });
-    if (!branch) {
-      return NextResponse.json(
-        { success: false, error: 'ไม่พบสาขาที่เลือก' },
-        { status: 404 }
-      );
-    }
-
     // Check Roaming Permission
     if (!employee.canRoam && employee.homeBranchId !== branchId) {
       return NextResponse.json(
@@ -128,9 +131,12 @@ export async function POST(request: Request) {
       }, { status: 400 });
     }
 
-    const now = getThaiNow();
-    const dateStr = getThaiDateStr();
-    const dayOfWeek = now.getDay(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
+    const now = new Date();
+    const dateStr = getThaiDateStr(now);
+    // Get dayOfWeek 0-6 in Thailand Time
+    const thaiDayStr = now.toLocaleDateString("en-US", { timeZone: "Asia/Bangkok", weekday: "short" });
+    const dayOfWeekMap: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+    const dayOfWeek = dayOfWeekMap[thaiDayStr] !== undefined ? dayOfWeekMap[thaiDayStr] : now.getDay();
 
     // Check if active clock-in exists for today
     const existing = await prisma.attendance.findFirst({
@@ -163,8 +169,7 @@ export async function POST(request: Request) {
     const [shiftHour, shiftMin] = shiftTimeStr.split(':').map(Number);
 
     const shiftTotalMinutes = shiftHour * 60 + shiftMin;
-    const nowThaiHour = now.getHours();
-    const nowThaiMin = now.getMinutes();
+    const { hour: nowThaiHour, minute: nowThaiMin } = getThaiHourAndMinute(now);
     const nowTotalMinutes = nowThaiHour * 60 + nowThaiMin;
 
     let lateMinutes = 0;
@@ -200,7 +205,7 @@ export async function POST(request: Request) {
         distanceMeters: geofenceResult.distanceMeters,
         lateMinutes,
         status,
-        notes: notes || `เข้างานกะเวลา ${shiftTimeStr} น. (${methodLabel})`,
+        notes: notes || null,
       },
       include: {
         employee: true,
@@ -210,9 +215,55 @@ export async function POST(request: Request) {
 
     const thaiFormattedTime = now.toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok' });
 
-    // Send LINE Notification Broadcast (if LINE Token configured)
-    const lineMsg = `🟢 [ร้านผมขอทอด] แจ้งเตือนเข้างาน!\n👤 พนักงาน: ${employee.fullName} (${employee.nickname || 'พนักงาน'})\n🏪 สาขา: ${branch.name}\n⏰ เวลา: ${thaiFormattedTime} น.\n📌 สถานะ: ${statusLabel}\n🔐 วิธียืนยัน: ${methodLabel}`;
-    sendLineGroupNotification(lineMsg, photoUrl && photoUrl.startsWith('http') ? photoUrl : undefined).catch((err: any) => console.error(err));
+    // Option 1 Quota Saver: Send LINE Notification ONLY for IMPORTANT alerts (Late / Absent)
+    if (status === 'LATE' || status === 'ABSENT' || lateMinutes > 15) {
+      const lineMsg = `🚨 [ร้านผมขอทอด] แจ้งเตือนเข้างานผิดปกติ!\n👤 พนักงาน: ${employee.fullName} (${employee.nickname || 'พนักงาน'})\n🏪 สาขา: ${branch.name}\n⏰ เวลา: ${thaiFormattedTime} น.\n📌 สถานะ: ${statusLabel}\n🔐 วิธียืนยัน: ${methodLabel}`;
+      sendLineGroupNotification(lineMsg, photoUrl && photoUrl.startsWith('http') ? photoUrl : undefined).catch((err: any) => console.error(err));
+    }
+
+    // Auto-update Daily Sales Bonus if sales record already submitted today for this branch
+    (async () => {
+      try {
+        const existingSales = await prisma.dailySales.findFirst({
+          where: { branchId, dateStr },
+        });
+        if (existingSales) {
+          const attendances = await prisma.attendance.findMany({
+            where: { branchId, dateStr },
+            include: { employee: true },
+          });
+          const empMap = new Map();
+          attendances.forEach((att) => {
+            if (!empMap.has(att.employeeId)) empMap.set(att.employeeId, att.employee);
+          });
+          const workingEmps = Array.from(empMap.values());
+          const fullTimeEmps = workingEmps.filter((e) => e.employmentType !== 'PART_TIME');
+
+          const bonusResult = calculateDailySalesBonus(existingSales.totalSales, fullTimeEmps.length);
+
+          await prisma.bonusPayout.deleteMany({
+            where: { dailySalesId: existingSales.id },
+          });
+
+          if (bonusResult.isQualified && bonusResult.bonusPerPerson > 0) {
+            for (const emp of fullTimeEmps) {
+              await prisma.bonusPayout.create({
+                data: {
+                  dailySalesId: existingSales.id,
+                  employeeId: emp.id,
+                  branchId,
+                  dateStr,
+                  amount: bonusResult.bonusPerPerson,
+                  reason: bonusResult.reason,
+                },
+              });
+            }
+          }
+        }
+      } catch (err) {
+        console.error('[Auto Sales Bonus Sync Error]', err);
+      }
+    })();
 
     // Backup / Sync to Google Sheets
     syncToGoogleSheets({

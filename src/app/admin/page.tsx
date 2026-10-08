@@ -57,9 +57,39 @@ export default function AdminDashboardPage() {
 
   const [activeTab, setActiveTab] = useState<'branches' | 'employees' | 'logs' | 'bonus' | 'diligence' | 'performance' | 'leaves' | 'payroll'>('performance');
 
-  // Global Month Filter State (e.g. "2026-08")
-  const [selectedMonthYear, setSelectedMonthYear] = useState<string>(getThaiMonthYearStr());
+  // Global Month Filter State (defaults to previous month if day 1-5 of current month)
+  const getDefaultMonthYearStr = () => {
+    const thaiNow = getThaiDateStr();
+    const [yearStr, monthStr, dayStr] = thaiNow.split('-');
+    const day = parseInt(dayStr, 10);
+    if (day <= 5) {
+      const year = parseInt(yearStr, 10);
+      const month = parseInt(monthStr, 10);
+      const prevDate = new Date(year, month - 2, 1);
+      return `${prevDate.getFullYear()}-${String(prevDate.getMonth() + 1).padStart(2, '0')}`;
+    }
+    return `${yearStr}-${monthStr}`;
+  };
+
+  const [selectedMonthYear, setSelectedMonthYear] = useState<string>(getDefaultMonthYearStr());
   const recentMonthsOptions = generateMonthsOptions(12);
+  const [dbAvailableMonths, setDbAvailableMonths] = useState<any[]>([]);
+
+  // Computed all month options merging DB verified months with generated options
+  const allMonthOptions = (() => {
+    const map = new Map<string, string>();
+    dbAvailableMonths.forEach((m) => {
+      map.set(m.value, `📅 ${m.label}`);
+    });
+    recentMonthsOptions.forEach((m) => {
+      if (!map.has(m.value)) {
+        map.set(m.value, `📅 ${m.label}`);
+      }
+    });
+    return Array.from(map.entries())
+      .sort((a, b) => b[0].localeCompare(a[0]))
+      .map(([value, label]) => ({ value, label }));
+  })();
 
   // Data states
   const [branches, setBranches] = useState<any[]>([]);
@@ -99,11 +129,100 @@ export default function AdminDashboardPage() {
   const [selectedPerfBranchId, setSelectedPerfBranchId] = useState<string>('');
   const [selectedDiligenceBranchId, setSelectedDiligenceBranchId] = useState<string>('ALL');
   const [selectedPayrollBranchId, setSelectedPayrollBranchId] = useState<string>('ALL');
+  const [showBonusRuleModal, setShowBonusRuleModal] = useState<boolean>(false);
 
   // Schedule Form State per branch
   const [selectedScheduleBranchId, setSelectedScheduleBranchId] = useState<string>('');
   const [scheduleDay, setScheduleDay] = useState<number>(1);
   const [scheduleStartTime, setScheduleStartTime] = useState<string>('09:00');
+
+  // Logs Filters State (Employee, Branch, Date)
+  const [selectedLogsEmpId, setSelectedLogsEmpId] = useState<string>('ALL');
+  const [selectedLogsBranchId, setSelectedLogsBranchId] = useState<string>('ALL');
+  const [selectedLogsDateStr, setSelectedLogsDateStr] = useState<string>('ALL');
+
+  // Attendance Note & Status Edit State
+  const [editingLog, setEditingLog] = useState<any | null>(null);
+  const [editingStatus, setEditingStatus] = useState<string>('ON_TIME');
+  const [editingNoteText, setEditingNoteText] = useState<string>('');
+  const [isSavingNote, setIsSavingNote] = useState<boolean>(false);
+  const [isAuditingMorning, setIsAuditingMorning] = useState<boolean>(false);
+
+  const handleRunMorningAudit = async () => {
+    setIsAuditingMorning(true);
+    try {
+      const res = await fetch('/api/attendance/audit-morning', {
+        method: 'POST',
+      });
+      const data = await res.json();
+      if (data.success) {
+        const understaffedCount = data.auditResults.filter((r: any) => r.isUnderstaffed).length;
+        if (understaffedCount > 0) {
+          alert(`🚨 ตรวจพบสาขาที่พนักงานเข้างานน้อยกว่าเกณฑ์ (ตัดรอบ 09:30 น.) จำนวน ${understaffedCount} สาขา! ระบบได้ส่งแจ้งเตือนเข้า LINE เรียบร้อยแล้ว`);
+        } else {
+          alert(`✅ ตรวจสอบเรียบร้อย: พนักงานเข้าปฏิบัติงานกะเช้าครบถ้วนทุกสาขา ไม่พบสาขาที่พนักงานขาด`);
+        }
+      } else {
+        alert(data.error || 'เกิดข้อผิดพลาดในการตรวจสอบ');
+      }
+    } catch (err: any) {
+      alert('เกิดข้อผิดพลาด: ' + err.message);
+    } finally {
+      setIsAuditingMorning(false);
+    }
+  };
+
+  const handleSaveNote = async () => {
+    if (!editingLog) return;
+    setIsSavingNote(true);
+    try {
+      const res = await fetch('/api/attendance/logs', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          attendanceId: editingLog.id,
+          status: editingStatus,
+          notes: editingNoteText,
+          adminUser: adminUser || 'Admin',
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setAttendanceLogs((prev) =>
+          prev.map((log) => (log.id === editingLog.id ? data.attendance : log))
+        );
+        setEditingLog(null);
+        setEditingNoteText('');
+      } else {
+        alert(data.error || 'เกิดข้อผิดพลาดในการบันทึกการแก้ไข');
+      }
+    } catch (err: any) {
+      alert('เกิดข้อผิดพลาด: ' + err.message);
+    } finally {
+      setIsSavingNote(false);
+    }
+  };
+
+  const handleDeleteLog = async (logId: string, empName: string, dateStr: string) => {
+    if (!confirm(`⚠️ คุณต้องการลบประวัติการเข้างานของ ${empName} ประจำวันที่ ${dateStr} ใช่หรือไม่? (ไม่สามารถยกเลิกได้)`)) {
+      return;
+    }
+
+    try {
+      const res = await fetch(`/api/attendance/logs?attendanceId=${logId}`, {
+        method: 'DELETE',
+      });
+      const data = await res.json();
+      if (data.success) {
+        setAttendanceLogs((prev) => prev.filter((l) => l.id !== logId));
+        alert('🗑️ ลบรายการประวัติการเข้างานเรียบร้อยแล้ว');
+      } else {
+        alert(data.error || 'เกิดข้อผิดพลาดในการลบรายการ');
+      }
+    } catch (err: any) {
+      alert('เกิดข้อผิดพลาดในการลบ: ' + err.message);
+    }
+  };
 
   // Branch GPS Editor State
   const [editBranchId, setEditBranchId] = useState<string>('');
@@ -145,8 +264,14 @@ export default function AdminDashboardPage() {
       fetchBranches();
       fetchEmployees();
       fetchSchedules();
+      fetchAvailableMonths();
     }
   }, [adminUser]);
+
+  useEffect(() => {
+    // When month changes, always reset specific date filter to show all logs for that month
+    setSelectedLogsDateStr('ALL');
+  }, [selectedMonthYear]);
 
   useEffect(() => {
     if (adminUser) {
@@ -195,6 +320,23 @@ export default function AdminDashboardPage() {
     } catch (e) {}
     document.cookie = 'pkt_admin_user=; Max-Age=0; path=/;';
     setAdminUser(null);
+  };
+
+  const fetchAvailableMonths = async () => {
+    try {
+      const res = await fetch('/api/analytics/available-months');
+      const data = await res.json();
+      if (data.success && Array.isArray(data.months) && data.months.length > 0) {
+        setDbAvailableMonths(data.months);
+        // If current selectedMonthYear has no records in DB, auto-select the latest month that has data!
+        const hasCurrent = data.months.some((m: any) => m.value === selectedMonthYear);
+        if (!hasCurrent && data.months[0]?.value) {
+          setSelectedMonthYear(data.months[0].value);
+        }
+      }
+    } catch (e) {
+      console.error(e);
+    }
   };
 
   const fetchBranches = async () => {
@@ -803,38 +945,53 @@ export default function AdminDashboardPage() {
     );
   }
 
-  const selectedPerfItem = perfReport.find((p) => p.employee.id === selectedPerfEmpId) || perfReport[0];
+  const selectedEmpObj = employees.find((e) => e.id === selectedPerfEmpId) || employees[0];
+  const selectedPerfItem =
+    perfReport.find((p) => p.employee?.id === selectedPerfEmpId) ||
+    (selectedEmpObj
+      ? {
+          employee: selectedEmpObj,
+          totalShifts: 0,
+          onTimeCount: 0,
+          lateCount: 0,
+          totalLateMinutes: 0,
+          onTimeRate: 100,
+          totalBonusAmount: 0,
+          bonusDetails: [],
+          branchBreakdown: [],
+        }
+      : perfReport[0]);
 
   return (
     <div className="space-y-6 pb-12">
-      {/* Clean Modern Admin Header */}
-      <div className="bg-white text-slate-900 rounded-2xl p-5 shadow-sm border border-slate-200 space-y-4">
+      {/* Warm Cream Admin Header */}
+      <div className="bg-[#FCFAF7] text-stone-900 rounded-3xl p-5 shadow-xs border border-[#EBE4D8] space-y-4">
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
           <div>
             <div className="flex items-center gap-3 flex-wrap">
-              <h1 className="text-xl font-extrabold text-slate-900 tracking-tight flex items-center gap-2">
+              <h1 className="text-xl font-extrabold text-stone-900 tracking-tight flex items-center gap-2">
                 <span>⚙️ Admin Dashboard</span>
               </h1>
-              <span className="bg-slate-100 text-slate-700 border border-slate-200 text-xs font-bold px-3 py-1 rounded-full flex items-center gap-1">
-                👤 ผู้จัดการ: <strong className="text-slate-900">{adminUser}</strong>
+              <span className="bg-[#F5EFEA] text-stone-800 border border-[#E5DDD4] text-xs font-bold px-3 py-1 rounded-full flex items-center gap-1">
+                👤 ผู้จัดการ: <strong className="text-stone-900">{adminUser}</strong>
               </span>
               <button
                 onClick={handleAdminLogout}
-                className="text-[11px] bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-3 py-1 rounded-xl transition border border-slate-200 active:scale-95"
+                className="text-[11px] bg-[#EFE8E2] hover:bg-[#E5DDD4] text-stone-800 font-bold px-3 py-1 rounded-2xl transition border border-[#E5DDD4] active:scale-95 cursor-pointer"
               >
                 🚪 ออกจากระบบ
               </button>
             </div>
-            <p className="text-xs text-slate-500 font-bold mt-1">
+            <p className="text-xs text-stone-500 font-bold mt-1">
               ระบบบริหารจัดการ 4 สาขา ร้านผมขอทอด "ที่มันอร่อยเกินไป" (สิทธิ์ผู้จัดการ)
             </p>
           </div>
 
           {/* SUPER EASY THAI MONTH SELECTOR */}
-          <div className="bg-slate-50 p-2 rounded-xl border border-slate-200 flex flex-wrap md:flex-nowrap items-center gap-2 w-full md:w-auto">
+          <div className="bg-[#F5EFEA] p-2 rounded-2xl border border-[#E5DDD4] flex flex-wrap md:flex-nowrap items-center gap-2 w-full md:w-auto">
             <button
               onClick={handlePrevMonth}
-              className="bg-white hover:bg-slate-100 text-slate-800 font-bold px-3 py-2 rounded-xl text-xs transition border border-slate-200 flex items-center gap-1 shadow-sm active:scale-95"
+              className="bg-white hover:bg-[#FAF5EF] text-stone-800 font-bold px-3 py-2 rounded-2xl text-xs transition border border-[#E5DDD4] flex items-center gap-1 shadow-xs active:scale-95 cursor-pointer"
             >
               <span>◀️ เดือนก่อน</span>
             </button>
@@ -844,11 +1001,11 @@ export default function AdminDashboardPage() {
               <select
                 value={selectedMonthYear}
                 onChange={(e) => setSelectedMonthYear(e.target.value)}
-                className="w-full bg-white border border-slate-200 text-orange-600 font-bold text-xs md:text-sm px-3.5 py-2 rounded-xl shadow-sm focus:ring-2 focus:ring-orange-500 outline-none cursor-pointer"
+                className="w-full bg-white border border-[#E5DDD4] text-[#F97316] font-bold text-xs md:text-sm px-3.5 py-2 rounded-2xl shadow-xs focus:ring-2 focus:ring-[#F97316] outline-none cursor-pointer"
               >
-                {recentMonthsOptions.map((opt) => (
+                {allMonthOptions.map((opt) => (
                   <option key={opt.value} value={opt.value}>
-                    📅 {opt.label}
+                    {opt.label}
                   </option>
                 ))}
               </select>
@@ -856,19 +1013,11 @@ export default function AdminDashboardPage() {
 
             <button
               onClick={handleNextMonth}
-              className="bg-white hover:bg-slate-100 text-slate-800 font-bold px-3 py-2 rounded-xl text-xs transition border border-slate-200 flex items-center gap-1 shadow-sm active:scale-95"
+              className="bg-white hover:bg-[#FAF5EF] text-stone-800 font-bold px-3 py-2 rounded-2xl text-xs transition border border-[#E5DDD4] flex items-center gap-1 shadow-xs active:scale-95 cursor-pointer"
             >
               <span>เดือนถัดไป ▶️</span>
             </button>
           </div>
-        </div>
-
-        {/* Current Active Month Banner Indicator */}
-        <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 flex items-center justify-between text-xs">
-          <span className="text-slate-600 font-bold">กำลังแสดงผลข้อมูลย้อนหลังประจำเดือน:</span>
-          <span className="bg-orange-500 text-white font-bold px-3.5 py-1 rounded-full text-xs shadow-sm">
-            ✨ {formatThaiMonth(selectedMonthYear)}
-          </span>
         </div>
       </div>
 
@@ -876,18 +1025,18 @@ export default function AdminDashboardPage() {
       <div className="grid grid-cols-1 md:grid-cols-[260px_1fr] lg:grid-cols-[280px_1fr] gap-6 items-start">
         
         {/* Left Sidebar Navigation Panel */}
-        <div className="bg-white p-3 rounded-2xl border border-slate-200 shadow-sm space-y-1.5 md:sticky md:top-4 z-20">
-          <div className="px-3 py-2 text-[11px] font-black text-slate-400 uppercase tracking-wider border-b border-slate-100 mb-1 flex items-center justify-between">
+        <div className="bg-[#FCFAF7] p-3 rounded-3xl border border-[#EBE4D8] shadow-xs space-y-1.5 md:sticky md:top-4 z-20">
+          <div className="px-3 py-2 text-[11px] font-black text-stone-400 uppercase tracking-wider border-b border-[#EBE4D8] mb-1 flex items-center justify-between">
             <span>⚙️ เมนูสั่งการผู้บริหาร</span>
-            <span className="bg-red-100 text-red-700 px-2 py-0.5 rounded-full text-[10px] font-extrabold">8 เมนู</span>
+            <span className="bg-[#FCE5CD] text-[#783E10] px-2.5 py-0.5 rounded-full text-[10px] font-bold border border-[#F9D3AD]">8 เมนู</span>
           </div>
 
           <button
             onClick={() => setActiveTab('performance')}
-            className={`w-full text-left py-3 px-3.5 rounded-xl transition flex items-center gap-2.5 font-bold text-xs md:text-sm ${
+            className={`w-full text-left py-3 px-3.5 rounded-2xl transition flex items-center gap-2.5 font-bold text-xs md:text-sm ${
               activeTab === 'performance'
-                ? 'bg-orange-500 text-white shadow-sm'
-                : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
+                ? 'bg-[#2D2A26] text-white shadow-xs'
+                : 'text-stone-700 hover:bg-[#F5EFEA] hover:text-stone-900'
             }`}
           >
             <span className="text-base">📈</span>
@@ -896,10 +1045,10 @@ export default function AdminDashboardPage() {
 
           <button
             onClick={() => setActiveTab('leaves')}
-            className={`w-full text-left py-3 px-3.5 rounded-xl transition flex items-center gap-2.5 font-bold text-xs md:text-sm ${
+            className={`w-full text-left py-3 px-3.5 rounded-2xl transition flex items-center gap-2.5 font-bold text-xs md:text-sm ${
               activeTab === 'leaves'
-                ? 'bg-orange-500 text-white shadow-sm'
-                : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
+                ? 'bg-[#2D2A26] text-white shadow-xs'
+                : 'text-stone-700 hover:bg-[#F5EFEA] hover:text-stone-900'
             }`}
           >
             <span className="text-base">📝</span>
@@ -908,10 +1057,10 @@ export default function AdminDashboardPage() {
 
           <button
             onClick={() => setActiveTab('bonus')}
-            className={`w-full text-left py-3 px-3.5 rounded-xl transition flex items-center gap-2.5 font-bold text-xs md:text-sm ${
+            className={`w-full text-left py-3 px-3.5 rounded-2xl transition flex items-center gap-2.5 font-bold text-xs md:text-sm ${
               activeTab === 'bonus'
-                ? 'bg-orange-500 text-white shadow-sm'
-                : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
+                ? 'bg-[#2D2A26] text-white shadow-xs'
+                : 'text-stone-700 hover:bg-[#F5EFEA] hover:text-stone-900'
             }`}
           >
             <span className="text-base">💰</span>
@@ -920,10 +1069,10 @@ export default function AdminDashboardPage() {
 
           <button
             onClick={() => setActiveTab('diligence')}
-            className={`w-full text-left py-3 px-3.5 rounded-xl transition flex items-center gap-2.5 font-bold text-xs md:text-sm ${
+            className={`w-full text-left py-3 px-3.5 rounded-2xl transition flex items-center gap-2.5 font-bold text-xs md:text-sm ${
               activeTab === 'diligence'
-                ? 'bg-orange-500 text-white shadow-sm'
-                : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
+                ? 'bg-[#2D2A26] text-white shadow-xs'
+                : 'text-stone-700 hover:bg-[#F5EFEA] hover:text-stone-900'
             }`}
           >
             <span className="text-base">🏆</span>
@@ -932,10 +1081,10 @@ export default function AdminDashboardPage() {
 
           <button
             onClick={() => setActiveTab('payroll')}
-            className={`w-full text-left py-3 px-3.5 rounded-xl transition flex items-center gap-2.5 font-bold text-xs md:text-sm ${
+            className={`w-full text-left py-3 px-3.5 rounded-2xl transition flex items-center gap-2.5 font-bold text-xs md:text-sm ${
               activeTab === 'payroll'
-                ? 'bg-orange-500 text-white shadow-sm font-black'
-                : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
+                ? 'bg-[#2D2A26] text-white shadow-xs font-extrabold'
+                : 'text-stone-700 hover:bg-[#F5EFEA] hover:text-stone-900'
             }`}
           >
             <span className="text-base">💵</span>
@@ -944,10 +1093,10 @@ export default function AdminDashboardPage() {
 
           <button
             onClick={() => setActiveTab('logs')}
-            className={`w-full text-left py-3 px-3.5 rounded-xl transition flex items-center gap-2.5 font-bold text-xs md:text-sm ${
+            className={`w-full text-left py-3 px-3.5 rounded-2xl transition flex items-center gap-2.5 font-bold text-xs md:text-sm ${
               activeTab === 'logs'
-                ? 'bg-orange-500 text-white shadow-sm'
-                : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
+                ? 'bg-[#2D2A26] text-white shadow-xs'
+                : 'text-stone-700 hover:bg-[#F5EFEA] hover:text-stone-900'
             }`}
           >
             <span className="text-base">📋</span>
@@ -956,10 +1105,10 @@ export default function AdminDashboardPage() {
 
           <button
             onClick={() => setActiveTab('branches')}
-            className={`w-full text-left py-3 px-3.5 rounded-xl transition flex items-center gap-2.5 font-bold text-xs md:text-sm ${
+            className={`w-full text-left py-3 px-3.5 rounded-2xl transition flex items-center gap-2.5 font-bold text-xs md:text-sm ${
               activeTab === 'branches'
-                ? 'bg-orange-500 text-white shadow-sm'
-                : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
+                ? 'bg-[#2D2A26] text-white shadow-xs'
+                : 'text-stone-700 hover:bg-[#F5EFEA] hover:text-stone-900'
             }`}
           >
             <span className="text-base">🏪</span>
@@ -968,10 +1117,10 @@ export default function AdminDashboardPage() {
 
           <button
             onClick={() => setActiveTab('employees')}
-            className={`w-full text-left py-3 px-3.5 rounded-xl transition flex items-center gap-2.5 font-bold text-xs md:text-sm ${
+            className={`w-full text-left py-3 px-3.5 rounded-2xl transition flex items-center gap-2.5 font-bold text-xs md:text-sm ${
               activeTab === 'employees'
-                ? 'bg-orange-500 text-white shadow-sm'
-                : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
+                ? 'bg-[#2D2A26] text-white shadow-xs'
+                : 'text-stone-700 hover:bg-[#F5EFEA] hover:text-stone-900'
             }`}
           >
             <span className="text-base">👥</span>
@@ -1072,9 +1221,25 @@ export default function AdminDashboardPage() {
           </div>
 
           <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-3">
-            <h3 className="font-bold text-slate-900 text-sm">
-              ประวัติรายการลางานในเดือน {formatThaiMonth(selectedMonthYear)}
-            </h3>
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+              <h3 className="font-bold text-slate-900 text-sm">
+                ประวัติรายการลางานในเดือน {formatThaiMonth(selectedMonthYear)}
+              </h3>
+              <div className="flex items-center gap-1">
+                <label className="text-xs font-bold text-slate-700 whitespace-nowrap">📅 เลือกเดือน:</label>
+                <select
+                  value={selectedMonthYear}
+                  onChange={(e) => setSelectedMonthYear(e.target.value)}
+                  className="p-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-bold text-[#F97316] focus:ring-2 focus:ring-[#F97316] outline-none cursor-pointer"
+                >
+                  {allMonthOptions.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
 
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs border-collapse">
@@ -1143,6 +1308,29 @@ export default function AdminDashboardPage() {
 
             {/* DUAL FILTER CONTROLS */}
             <div className="flex flex-wrap items-center gap-2">
+              <div className="flex items-center gap-1">
+                <label className="text-xs font-bold text-slate-700 whitespace-nowrap">📅 ประจำเดือน:</label>
+                <select
+                  value={selectedMonthYear}
+                  onChange={(e) => setSelectedMonthYear(e.target.value)}
+                  className="p-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-bold text-[#F97316] focus:ring-2 focus:ring-[#F97316] outline-none cursor-pointer"
+                >
+                  {allMonthOptions.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <button
+                onClick={() => setShowBonusRuleModal(true)}
+                className="px-3 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-800 font-extrabold text-xs transition flex items-center gap-1 cursor-pointer"
+              >
+                <span>ℹ️</span>
+                <span>เกณฑ์เงื่อนไขโบนัส</span>
+              </button>
+
               <div className="bg-slate-100 p-1 rounded-xl flex items-center gap-1 border border-slate-200 text-xs font-bold">
                 <button
                   onClick={() => setPerfFilterMode('EMPLOYEE')}
@@ -1326,8 +1514,175 @@ export default function AdminDashboardPage() {
                   </table>
                 </div>
               </div>
-            </div>
-          )}
+
+                {/* Unclocked / Day Off Report Section for Employee */}
+                {(() => {
+                  if (!selectedPerfItem || !selectedPerfItem.employee) return null;
+                  const empId = selectedPerfItem.employee.id;
+
+                  const [yearStr, monthStr] = selectedMonthYear.split('-');
+                  const year = parseInt(yearStr, 10);
+                  const month = parseInt(monthStr, 10);
+
+                  const thaiDateNow = getThaiDateStr();
+                  const [nowYear, nowMonth, nowDay] = thaiDateNow.split('-').map((v) => parseInt(v, 10));
+
+                  let lastDay = new Date(year, month, 0).getDate();
+                  if (year === nowYear && month === nowMonth) {
+                    lastDay = Math.min(lastDay, nowDay);
+                  }
+
+                  const clockedInDateSet = new Set(
+                    attendanceLogs
+                      .filter((l) => l.employeeId === empId || l.employee?.id === empId)
+                      .map((l) => l.dateStr)
+                  );
+
+                  const empLogs = attendanceLogs.filter((l) => l.employeeId === empId || l.employee?.id === empId);
+                  const sortedLogDates = empLogs.map((l) => l.dateStr).sort();
+                  const firstClockInDateStr = sortedLogDates.length > 0 ? sortedLogDates[0] : null;
+
+                  const empObj = selectedPerfItem.employee;
+                  const createdAtDateStr = empObj?.createdAt ? String(empObj.createdAt).slice(0, 10) : null;
+
+                  // Determine employee's first active working date
+                  let firstActiveDateStr: string | null = null;
+                  if (firstClockInDateStr) {
+                    firstActiveDateStr = firstClockInDateStr;
+                  } else if (createdAtDateStr) {
+                    firstActiveDateStr = createdAtDateStr;
+                  }
+
+                  const empLeavesMap = new Map<string, any>();
+                  leaveRecords
+                    .filter((r) => r.employeeId === empId)
+                    .forEach((r) => empLeavesMap.set(r.dateStr, r));
+
+                  const thaiDayNames = ['อาทิตย์', 'จันทร์', 'อังคาร', 'พุธ', 'พฤหัสบดี', 'ศุกร์', 'เสาร์'];
+                  const unclockedList = [];
+                  const weeklyUnclockedCountMap: Record<string, number> = {};
+
+                  // Helper function to get Monday-Sunday week key
+                  const getWeekKeyStr = (dateObj: Date) => {
+                    const d = new Date(dateObj.getFullYear(), dateObj.getMonth(), dateObj.getDate());
+                    const day = d.getDay() === 0 ? 7 : d.getDay();
+                    d.setDate(d.getDate() + 4 - day);
+                    const yearStart = new Date(d.getFullYear(), 0, 1);
+                    const weekNo = Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+                    return `${d.getFullYear()}-W${String(weekNo).padStart(2, '0')}`;
+                  };
+
+                  for (let day = 1; day <= lastDay; day++) {
+                    const dStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                    
+                    // Exclude dates before employee's first active working/registration date
+                    if (firstActiveDateStr && dStr < firstActiveDateStr) {
+                      continue;
+                    }
+
+                    if (!clockedInDateSet.has(dStr)) {
+                      const dObj = new Date(dStr + 'T00:00:00');
+                      const dayOfWeek = dObj.getDay();
+                      const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+                      const dayName = thaiDayNames[dayOfWeek];
+
+                      const weekKey = getWeekKeyStr(dObj);
+                      if (!weeklyUnclockedCountMap[weekKey]) {
+                        weeklyUnclockedCountMap[weekKey] = 0;
+                      }
+
+                      const leaveItem = empLeavesMap.get(dStr);
+                      let statusLabel = '';
+                      let badgeStyle = '';
+
+                      if (leaveItem) {
+                        const typeObj = LEAVE_TYPES[leaveItem.leaveType];
+                        const typeLabel = typeObj ? typeObj.label : '🌴 ลางาน';
+                        const reasonText = leaveItem.reason && leaveItem.reason.trim() !== '-' ? ` (${leaveItem.reason.trim()})` : '';
+                        statusLabel = `${typeLabel}${reasonText}`;
+                        badgeStyle = typeObj ? typeObj.badge : 'bg-emerald-100 text-emerald-800 border-emerald-300';
+                      } else if (isWeekend) {
+                        statusLabel = '🛑 หยุดวันเสาร์-อาทิตย์ (หัก 500฿)';
+                        badgeStyle = 'bg-red-100 text-red-800 border-red-300';
+                      } else {
+                        weeklyUnclockedCountMap[weekKey] += 1;
+                        if (weeklyUnclockedCountMap[weekKey] === 1) {
+                          statusLabel = '🌴 วันหยุดประจำสัปดาห์ (Flexible Day Off)';
+                          badgeStyle = 'bg-emerald-100 text-emerald-800 border-emerald-300';
+                        } else {
+                          statusLabel = '🛑 ขาดงาน / หยุดเกินสิทธิ์สัปดาห์นี้ (ตัดเบี้ยขยัน)';
+                          badgeStyle = 'bg-amber-100 text-amber-900 border-amber-300';
+                        }
+                      }
+
+                      unclockedList.push({
+                        dateStr: dStr,
+                        dayName,
+                        isWeekend,
+                        statusLabel,
+                        badgeStyle,
+                      });
+                    }
+                  }
+
+                  return (
+                    <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+                      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 border-b border-slate-200 pb-3">
+                        <div>
+                          <h3 className="font-extrabold text-sm text-slate-900 flex items-center gap-2">
+                            <span>🌴 รายงานวันที่พนักงานหยุดงาน / ไม่ได้ลงเวลาเข้างาน ({selectedPerfItem.employee?.fullName})</span>
+                          </h3>
+                          <p className="text-xs text-slate-500 mt-0.5">
+                            แสดงวันที่ไม่มีประวัติสแกนเข้างานในเดือน {formatThaiMonth(selectedMonthYear)} เพื่อตรวจสอบซ้ำ (Recheck)
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          {firstActiveDateStr && (
+                            <span className="text-xs font-bold px-3 py-1.5 rounded-full bg-sky-50 text-sky-900 border border-sky-200 flex items-center gap-1">
+                              <span>🚀 เริ่มลงเวลาวันแรก:</span>
+                              <span className="font-mono">{firstActiveDateStr}</span>
+                            </span>
+                          )}
+                          <span className="text-xs font-bold px-3 py-1.5 rounded-full bg-amber-50 text-amber-900 border border-amber-200">
+                            หยุด/ไม่ได้เข้างาน {unclockedList.length} วัน
+                          </span>
+                        </div>
+                      </div>
+
+                      {unclockedList.length === 0 ? (
+                        <div className="p-4 text-center text-xs text-slate-400 italic bg-slate-50 rounded-xl border border-slate-200">
+                          ✅ ไม่พบวันที่หยุดงาน พนักงานลงเวลาเข้างานครบถ้วนทุกวันทำการในเดือนนี้
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                          {unclockedList.map((item) => (
+                            <div
+                              key={item.dateStr}
+                              className={`p-3 rounded-2xl border flex flex-col justify-between gap-2 shadow-2xs ${
+                                item.isWeekend ? 'bg-red-50/70 border-red-200' : 'bg-stone-50/70 border-stone-200'
+                              }`}
+                            >
+                              <div className="flex items-center justify-between">
+                                <span className="font-bold text-xs text-slate-900 font-mono">{item.dateStr}</span>
+                                <span className="text-[10px] font-bold text-slate-500">
+                                  วัน{item.dayName}
+                                </span>
+                              </div>
+
+                              <div className="mt-1">
+                                <span className={`inline-block px-2.5 py-1 rounded-xl text-[10px] font-bold border ${item.badgeStyle}`}>
+                                  {item.statusLabel}
+                                </span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
 
           {/* VIEW MODE 2: BRANCH FILTER */}
           {perfFilterMode === 'BRANCH' && (() => {
@@ -1661,9 +2016,25 @@ export default function AdminDashboardPage() {
           </div>
 
           <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-3">
-            <h3 className="font-bold text-slate-900 text-sm">
-              ประวัติการคำนวณโบนัสประจำวันในเดือน {formatThaiMonth(selectedMonthYear)}
-            </h3>
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+              <h3 className="font-bold text-slate-900 text-sm">
+                ประวัติการคำนวณโบนัสประจำวันในเดือน {formatThaiMonth(selectedMonthYear)}
+              </h3>
+              <div className="flex items-center gap-1">
+                <label className="text-xs font-bold text-slate-700 whitespace-nowrap">📅 เลือกเดือน:</label>
+                <select
+                  value={selectedMonthYear}
+                  onChange={(e) => setSelectedMonthYear(e.target.value)}
+                  className="p-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-bold text-[#F97316] focus:ring-2 focus:ring-[#F97316] outline-none cursor-pointer"
+                >
+                  {allMonthOptions.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs border-collapse">
                 <thead>
@@ -1732,8 +2103,21 @@ export default function AdminDashboardPage() {
                   </p>
                 </div>
 
-                {/* BRANCH FILTER DROPDOWN */}
-                <div className="flex items-center gap-2">
+                {/* MONTH & BRANCH FILTER DROPDOWNS */}
+                <div className="flex items-center gap-2 flex-wrap">
+                  <label className="text-xs font-bold text-slate-700 whitespace-nowrap">📅 ประจำเดือน:</label>
+                  <select
+                    value={selectedMonthYear}
+                    onChange={(e) => setSelectedMonthYear(e.target.value)}
+                    className="p-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs font-bold text-[#F97316] focus:ring-2 focus:ring-[#F97316] outline-none cursor-pointer"
+                  >
+                    {allMonthOptions.map((opt) => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+
                   <label className="text-xs font-bold text-slate-700 whitespace-nowrap">กรองตามสาขา:</label>
                   <select
                     value={selectedDiligenceBranchId}
@@ -1851,21 +2235,44 @@ export default function AdminDashboardPage() {
         );
       })()}
 
-      {/* TAB: PAYROLL SUMMARY (BONUS + DILIGENCE) */}
+      {/* TAB: PAYROLL SUMMARY (BONUS + DILIGENCE + DAY OFF DEDUCTIONS) */}
       {activeTab === 'payroll' && (() => {
-        const payrollList = employees.map((emp) => {
-          const perfData = perfReport.find((p) => p.employee.id === emp.id);
-          const bonusDetails = perfData?.bonusDetails || [];
+        const [yearStr, monthStr] = selectedMonthYear.split('-');
+        const year = parseInt(yearStr, 10);
+        const month = parseInt(monthStr, 10);
 
-          let bonusAmount = 0;
-          if (selectedPayrollBranchId === 'ALL') {
-            bonusAmount = perfData?.totalBonusAmount || 0;
-          } else {
-            const selectedBranchObj = branches.find((b) => b.id === selectedPayrollBranchId);
-            bonusAmount = bonusDetails
-              .filter((b: any) => b.branchName === selectedBranchObj?.name || b.branchCode === selectedBranchObj?.code)
-              .reduce((sum: number, b: any) => sum + (b.amount || 0), 0);
+        const thaiDateNow = getThaiDateStr();
+        const [nowYear, nowMonth, nowDay] = thaiDateNow.split('-').map((v) => parseInt(v, 10));
+
+        let lastDay = new Date(year, month, 0).getDate();
+        if (year === nowYear && month === nowMonth) {
+          lastDay = Math.min(lastDay, nowDay);
+        }
+
+        const payrollList = employees.map((emp) => {
+          // Direct bonus extraction from salesRecords (dailySales + bonusPayouts)
+          const empBonusPayouts: any[] = [];
+          for (const ds of salesRecords) {
+            if (ds.bonusPayouts && Array.isArray(ds.bonusPayouts)) {
+              for (const bp of ds.bonusPayouts) {
+                if (bp.employeeId === emp.id || bp.employee?.id === emp.id) {
+                  empBonusPayouts.push({
+                    id: bp.id,
+                    dateStr: ds.dateStr,
+                    amount: bp.amount || 0,
+                    reason: bp.reason || '',
+                    branchName: ds.branch?.name || 'ไม่ทราบสาขา',
+                    branchCode: ds.branch?.code || 'N/A',
+                    totalSales: ds.totalSales || 0,
+                  });
+                }
+              }
+            }
           }
+          empBonusPayouts.sort((a, b) => a.dateStr.localeCompare(b.dateStr));
+
+          const bonusDetails = empBonusPayouts;
+          const bonusAmount = empBonusPayouts.reduce((sum, b) => sum + (b.amount || 0), 0);
 
           const diligenceData = diligenceReport.find((d) => d.employee.id === emp.id);
           let diligenceAmount = 0;
@@ -1875,8 +2282,9 @@ export default function AdminDashboardPage() {
             diligenceStatus = '❌ ไม่มีสิทธิ์ (Part-Time)';
           } else if (diligenceData?.evalResult?.isEligible) {
             if (selectedPayrollBranchId === 'ALL' || emp.homeBranchId === selectedPayrollBranchId || emp.homeBranch?.id === selectedPayrollBranchId) {
-              diligenceAmount = diligenceData.evalResult.allowanceAmount || 500;
-              diligenceStatus = '✅ ผ่านเกณฑ์ (+500฿)';
+              const targetAmt = (emp.role === 'MANAGER' || emp.role === 'ADMIN') ? 1000 : 500;
+              diligenceAmount = diligenceData.evalResult.allowanceAmount || targetAmt;
+              diligenceStatus = `✅ ผ่านเกณฑ์ (+${diligenceAmount.toLocaleString()}฿)`;
             } else {
               diligenceStatus = 'ประจำสาขาอื่น';
             }
@@ -1884,48 +2292,150 @@ export default function AdminDashboardPage() {
             diligenceStatus = `❌ Cut (${diligenceData.evalResult.reason})`;
           }
 
-          const totalNetPay = bonusAmount + diligenceAmount;
+          // Day Off & Weekend Deduction Calculation (หยุดเสาร์-อาทิตย์ หัก 500฿/วัน)
+          const clockedInDateSet = new Set(
+            attendanceLogs
+              .filter((l) => l.employeeId === emp.id || l.employee?.id === emp.id)
+              .map((l) => l.dateStr)
+          );
+
+          const empLogs = attendanceLogs.filter((l) => l.employeeId === emp.id || l.employee?.id === emp.id);
+          const sortedLogDates = empLogs.map((l) => l.dateStr).sort();
+          const firstClockInDateStr = sortedLogDates.length > 0 ? sortedLogDates[0] : null;
+
+          const createdAtDateStr = emp?.createdAt ? String(emp.createdAt).slice(0, 10) : null;
+
+          let firstActiveDateStr: string | null = null;
+          if (firstClockInDateStr) {
+            firstActiveDateStr = firstClockInDateStr;
+          } else if (createdAtDateStr) {
+            firstActiveDateStr = createdAtDateStr;
+          }
+
+          const empLeavesMap = new Map<string, any>();
+          leaveRecords
+            .filter((r) => r.employeeId === emp.id)
+            .forEach((r) => empLeavesMap.set(r.dateStr, r));
+
+          const thaiDayNames = ['อาทิตย์', 'จันทร์', 'อังคาร', 'พุธ', 'พฤหัสบดี', 'ศุกร์', 'เสาร์'];
+          const dayOffDetails = [];
+
+          for (let day = 1; day <= lastDay; day++) {
+            const dStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+            
+            // Exclude dates before employee's first active working/registration date
+            if (firstActiveDateStr && dStr < firstActiveDateStr) {
+              continue;
+            }
+
+            if (!clockedInDateSet.has(dStr)) {
+              const dObj = new Date(dStr + 'T00:00:00');
+              const dayOfWeek = dObj.getDay(); // 0 = Sunday, 6 = Saturday
+              const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+              const dayName = thaiDayNames[dayOfWeek];
+
+              const leaveItem = empLeavesMap.get(dStr);
+              let reason = 'ไม่ได้ลงเวลาเข้างาน';
+              let type = isWeekend ? 'UNCLOCKED_WEEKEND' : 'UNCLOCKED_WEEKDAY';
+
+              if (leaveItem) {
+                reason = leaveItem.reason || LEAVE_TYPES[leaveItem.leaveType]?.label || 'วันหยุด/ลางาน';
+                type = leaveItem.leaveType;
+              } else if (isWeekend) {
+                reason = 'หยุดวันเสาร์-อาทิตย์ (หัก 500฿)';
+              } else {
+                reason = 'วันหยุดประจำสัปดาห์ / ขาดงาน';
+              }
+
+              dayOffDetails.push({
+                dateStr: dStr,
+                reason,
+                type,
+                dayOfWeek,
+                dayName,
+                isWeekend,
+                penaltyAmount: isWeekend ? 500 : 0,
+              });
+            }
+          }
+
+          const totalDaysOff = dayOffDetails.length;
+          const weekdayDaysOffCount = dayOffDetails.filter((d) => !d.isWeekend).length;
+          const weekendDaysOffCount = dayOffDetails.filter((d) => d.isWeekend).length;
+          const totalWeekendDeduction = weekendDaysOffCount * 500;
+
+          const totalNetPay = bonusAmount + diligenceAmount - totalWeekendDeduction;
 
           return {
             employee: emp,
             homeBranchName: emp.homeBranch?.name || '-',
             bonusAmount,
             bonusDaysCount: bonusDetails.length,
+            bonusDetails,
             diligenceAmount,
             diligenceStatus,
+            totalDaysOff,
+            weekdayDaysOffCount,
+            weekendDaysOffCount,
+            totalWeekendDeduction,
+            dayOffDetails,
             totalNetPay,
           };
         });
 
         const filteredPayroll = payrollList.filter((row) => {
           if (selectedPayrollBranchId === 'ALL') return true;
-          return row.employee.homeBranchId === selectedPayrollBranchId || row.bonusAmount > 0;
+          return (
+            row.employee.homeBranchId === selectedPayrollBranchId ||
+            row.employee.homeBranch?.id === selectedPayrollBranchId
+          );
         });
 
         const totalBonusAll = filteredPayroll.reduce((sum, r) => sum + r.bonusAmount, 0);
         const totalDiligenceAll = filteredPayroll.reduce((sum, r) => sum + r.diligenceAmount, 0);
-        const grandTotalNet = totalBonusAll + totalDiligenceAll;
+        const totalWeekendDeductionAll = filteredPayroll.reduce((sum, r) => sum + r.totalWeekendDeduction, 0);
+        const grandTotalNet = totalBonusAll + totalDiligenceAll - totalWeekendDeductionAll;
 
         return (
           <div className="space-y-6">
-            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+            <div className="bg-[#FCFAF7] p-5 rounded-3xl border border-[#EBE4D8] shadow-xs space-y-4">
               <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div>
-                  <h2 className="font-extrabold text-base text-slate-900 flex items-center gap-2">
-                    <span>💵 สรุปยอดจ่ายรวม (โบนัสยอดขาย + เบี้ยขยัน) ประจำเดือน {formatThaiMonth(selectedMonthYear)}</span>
+                  <h2 className="font-extrabold text-base text-stone-900 flex items-center gap-2">
+                    <span>💵 สรุปยอดจ่ายรวม (โบนัส + เบี้ยขยัน - หักหยุดเสาร์อาทิตย์) ประจำเดือน {formatThaiMonth(selectedMonthYear)}</span>
                   </h2>
-                  <p className="text-xs text-slate-500 mt-0.5">
-                    รวมยอดเงินพิเศษที่พนักงานแต่ละคนได้รับ เพื่อนำไปทำจ่ายในระบบเงินเดือน • <span className="font-bold text-slate-900">ชื่อสีดำ = Full Time</span> • <span className="font-bold text-sky-600">ชื่อสีฟ้า = Part Time</span>
+                  <p className="text-xs text-stone-500 mt-0.5">
+                    รวมยอดเงินพิเศษ • <span className="font-bold text-emerald-700">โบนัสยอดขาย</span> • <span className="font-bold text-[#F97316]">เบี้ยขยัน (+500฿)</span> • <span className="font-bold text-red-600">หักหยุดเสาร์-อาทิตย์ (-500฿/วัน)</span> (วันหยุดธรรมดาไม่หักเงิน)
                   </p>
+                  <div className="flex items-center gap-1.5 flex-wrap pt-1 text-[11px] font-semibold text-stone-600">
+                    <span>รหัสสีสาขาที่ทำโบนัส:</span>
+                    <span className="bg-emerald-100 text-emerald-900 border border-emerald-300 px-1.5 py-0.5 rounded text-[10px] font-extrabold">🟢 B1 (ลาดพร้าว)</span>
+                    <span className="bg-sky-100 text-sky-900 border border-sky-300 px-1.5 py-0.5 rounded text-[10px] font-extrabold">🔵 B2 (เทพรักษ์)</span>
+                    <span className="bg-amber-100 text-amber-900 border border-amber-300 px-1.5 py-0.5 rounded text-[10px] font-extrabold">🟠 B3 (เมืองทอง)</span>
+                    <span className="bg-purple-100 text-purple-900 border border-purple-300 px-1.5 py-0.5 rounded text-[10px] font-extrabold">🟣 B4 (ปิ่นเกล้า)</span>
+                  </div>
                 </div>
 
-                {/* BRANCH FILTER DROPDOWN */}
-                <div className="flex items-center gap-2">
-                  <label className="text-xs font-bold text-slate-700 whitespace-nowrap">กรองตามสาขา:</label>
+                {/* MONTH & BRANCH FILTER DROPDOWNS */}
+                <div className="flex items-center gap-2 flex-wrap">
+                  <label className="text-xs font-bold text-stone-700 whitespace-nowrap">📅 ประจำเดือน:</label>
+                  <select
+                    value={selectedMonthYear}
+                    onChange={(e) => setSelectedMonthYear(e.target.value)}
+                    className="p-2.5 bg-white border border-[#E5DDD4] rounded-2xl text-xs font-bold text-[#F97316] focus:ring-2 focus:ring-[#F97316] outline-none cursor-pointer"
+                  >
+                    {allMonthOptions.map((opt) => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+
+                  <label className="text-xs font-bold text-stone-700 whitespace-nowrap">🏬 กรองสาขาประจำ:</label>
                   <select
                     value={selectedPayrollBranchId}
                     onChange={(e) => setSelectedPayrollBranchId(e.target.value)}
-                    className="p-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs font-black text-red-600 focus:ring-2 focus:ring-red-500 outline-none cursor-pointer"
+                    className="p-2.5 bg-white border border-[#E5DDD4] rounded-2xl text-xs font-bold text-[#F97316] focus:ring-2 focus:ring-[#F97316] outline-none cursor-pointer"
                   >
                     <option value="ALL">🌐 ทั้งหมดทุกสาขา ({employees.length} คน)</option>
                     {branches.map((b) => (
@@ -1934,83 +2444,169 @@ export default function AdminDashboardPage() {
                       </option>
                     ))}
                   </select>
+
+                  <button
+                    onClick={() => setShowBonusRuleModal(true)}
+                    className="p-2.5 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-2xl text-xs font-extrabold text-amber-900 transition flex items-center gap-1 cursor-pointer"
+                  >
+                    <span>ℹ️</span>
+                    <span>เกณฑ์เงื่อนไขโบนัส</span>
+                  </button>
                 </div>
               </div>
 
               {/* OVERVIEW STAT CARDS */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-2 border-t border-slate-100">
-                <div className="bg-emerald-50 p-4 rounded-xl border border-emerald-200 space-y-1">
-                  <p className="text-xs font-bold text-emerald-800">💰 ยอดโบนัสยอดขายรวม</p>
-                  <p className="text-2xl font-black text-emerald-600">+{totalBonusAll.toLocaleString()} บาท</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 pt-2 border-t border-[#EBE4D8]">
+                <div className="bg-[#D8F3E5] p-3.5 rounded-2xl border border-[#B6E7CE] space-y-1">
+                  <p className="text-[11px] font-bold text-[#14533C]">💰 โบนัสยอดขายรวม</p>
+                  <p className="text-xl font-black text-[#14533C]">+{totalBonusAll.toLocaleString()} ฿</p>
                 </div>
-                <div className="bg-sky-50 p-4 rounded-xl border border-sky-200 space-y-1">
-                  <p className="text-xs font-bold text-sky-800">🏆 ยอดเบี้ยขยันรวม (เฉพาะ Full-Time)</p>
-                  <p className="text-2xl font-black text-sky-600">+{totalDiligenceAll.toLocaleString()} บาท</p>
+                <div className="bg-[#FCE5CD] p-3.5 rounded-2xl border border-[#F9D3AD] space-y-1">
+                  <p className="text-[11px] font-bold text-[#783E10]">🏆 เบี้ยขยันรวม (Full-Time)</p>
+                  <p className="text-xl font-black text-[#783E10]">+{totalDiligenceAll.toLocaleString()} ฿</p>
                 </div>
-                <div className="bg-red-600 text-white p-4 rounded-xl shadow-md space-y-1">
-                  <p className="text-xs font-bold text-red-100">💵 รวมยอดเงินที่ต้องทำจ่ายสุทธิ</p>
-                  <p className="text-2xl font-black text-white">+{grandTotalNet.toLocaleString()} บาท</p>
+                <div className="bg-[#FCDAD7] p-3.5 rounded-2xl border border-[#F8B7B2] space-y-1">
+                  <p className="text-[11px] font-bold text-[#802227]">🛑 หักหยุดเสาร์-อาทิตย์ (-500฿/วัน)</p>
+                  <p className="text-xl font-black text-[#802227]">-{totalWeekendDeductionAll.toLocaleString()} ฿</p>
+                </div>
+                <div className="bg-[#2D2A26] text-white p-3.5 rounded-2xl shadow-xs space-y-1">
+                  <p className="text-[11px] font-bold text-stone-300">💵 ยอดรวมที่ต้องทำจ่ายสุทธิ</p>
+                  <p className="text-xl font-black text-white">
+                    {grandTotalNet >= 0 ? `+${grandTotalNet.toLocaleString()}` : `${grandTotalNet.toLocaleString()}`} ฿
+                  </p>
                 </div>
               </div>
 
               {/* PAYROLL BREAKDOWN TABLE */}
-              <div className="overflow-x-auto">
+              <div className="overflow-x-auto rounded-2xl border border-[#EBE4D8]">
                 <table className="w-full text-left text-xs border-collapse">
                   <thead>
-                    <tr className="bg-slate-100 text-slate-700 font-bold border-b border-slate-200">
+                    <tr className="bg-[#F5EFEA] text-stone-800 font-bold border-b border-[#EBE4D8]">
                       <th className="p-3">ชื่อ-นามสกุล พนักงาน</th>
                       <th className="p-3">สาขาประจำ</th>
-                      <th className="p-3">ประเภทพนักงาน</th>
-                      <th className="p-3 text-right">โบนัสยอดขาย (บาท)</th>
-                      <th className="p-3 text-right">เบี้ยขยัน (บาท)</th>
-                      <th className="p-3 text-right text-red-600">ยอดจ่ายสุทธิรวม (บาท)</th>
-                      <th className="p-3">สถานะ / รายละเอียดเพิ่มเติม</th>
+                      <th className="p-3 text-right">โบนัสยอดขาย (รวมทุกสาขา)</th>
+                      <th className="p-3 text-right">เบี้ยขยัน</th>
+                      <th className="p-3">วันหยุดประจำเดือน (รายละเอียด)</th>
+                      <th className="p-3 text-right text-red-600">หักหยุด ส.-อา.</th>
+                      <th className="p-3 text-right">ยอดจ่ายสุทธิรวม</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-200">
+                  <tbody className="divide-y divide-[#EBE4D8] bg-white">
                     {filteredPayroll.length === 0 ? (
                       <tr>
-                        <td colSpan={7} className="p-4 text-center text-slate-400 italic">
+                        <td colSpan={7} className="p-4 text-center text-stone-400 italic">
                           ไม่พบข้อมูลพนักงาน ณ สาขาที่เลือก
                         </td>
                       </tr>
                     ) : (
                       filteredPayroll.map((r) => (
-                        <tr key={r.employee.id} className="hover:bg-slate-50">
+                        <tr key={r.employee.id} className="hover:bg-[#FAF5EF] transition-colors">
                           <td className="p-3">
-                            <span
-                              className={`font-extrabold text-sm ${
-                                r.employee.employmentType === 'PART_TIME'
-                                  ? 'text-sky-600'
-                                  : 'text-slate-900'
-                              }`}
-                            >
-                              {r.employee.fullName} ({r.employee.nickname || 'พนักงาน'})
-                            </span>
+                            <div className="flex flex-col">
+                              <span
+                                className={`font-extrabold text-xs ${
+                                  r.employee.employmentType === 'PART_TIME'
+                                    ? 'text-[#F97316]'
+                                    : 'text-stone-900'
+                                }`}
+                              >
+                                {r.employee.fullName} ({r.employee.nickname || 'พนักงาน'})
+                              </span>
+                              <span className="text-[10px] text-stone-500 font-semibold">
+                                {r.employee.employmentType === 'PART_TIME' ? '⏳ Part-Time' : '💼 Full-Time'}
+                              </span>
+                            </div>
                           </td>
-                          <td className="p-3 text-slate-600 font-semibold">{r.homeBranchName}</td>
-                          <td className="p-3">
-                            <span
-                              className={`text-[10px] font-bold px-2 py-0.5 rounded ${
-                                r.employee.employmentType === 'PART_TIME'
-                                  ? 'bg-amber-100 text-amber-900 border border-amber-300'
-                                  : 'bg-sky-100 text-sky-900 border border-sky-300'
-                              }`}
-                            >
-                              {r.employee.employmentType === 'PART_TIME' ? '⏳ Part-Time' : '💼 Full-Time'}
-                            </span>
+                          <td className="p-3 text-stone-600 font-semibold">{r.homeBranchName}</td>
+                          <td className="p-3 text-right">
+                            {r.bonusAmount > 0 ? (
+                              <div className="flex flex-col items-end space-y-1">
+                                <span className="font-mono font-black text-xs text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-lg border border-emerald-200">
+                                  +{r.bonusAmount.toLocaleString()} ฿
+                                </span>
+                                <span className="text-[10px] font-bold text-stone-500">
+                                  ได้รับ {r.bonusDaysCount} วัน
+                                </span>
+                                {r.bonusDetails && r.bonusDetails.length > 0 && (
+                                  <div className="flex flex-wrap justify-end gap-1 max-w-[220px] pt-0.5">
+                                    {r.bonusDetails.map((b: any, bIdx: number) => {
+                                      const bCode = (b.branchCode || 'B').toUpperCase();
+                                      let badgeStyle = 'bg-emerald-100 text-emerald-900 border-emerald-300';
+                                      if (bCode.includes('B2')) badgeStyle = 'bg-sky-100 text-sky-900 border-sky-300';
+                                      else if (bCode.includes('B3')) badgeStyle = 'bg-amber-100 text-amber-900 border-amber-300';
+                                      else if (bCode.includes('B4')) badgeStyle = 'bg-purple-100 text-purple-900 border-purple-300';
+
+                                      return (
+                                        <span
+                                          key={bIdx}
+                                          className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded border whitespace-nowrap ${badgeStyle}`}
+                                          title={`วันที่ ${b.dateStr} (${b.branchName}): ยอดขาย ${b.totalSales.toLocaleString()}฿`}
+                                        >
+                                          {b.dateStr.slice(8)}/{b.dateStr.slice(5, 7)} ({b.branchCode || 'B'}): +{b.amount}฿
+                                        </span>
+                                      );
+                                    })}
+                                  </div>
+                                )}
+                              </div>
+                            ) : (
+                              <div className="flex flex-col items-end">
+                                <span className="font-mono font-semibold text-xs text-stone-400">0 ฿</span>
+                                <span className="text-[10px] text-stone-400 italic">ไม่มีโบนัส</span>
+                              </div>
+                            )}
                           </td>
-                          <td className="p-3 text-right font-mono font-bold text-emerald-600">
-                            {r.bonusAmount > 0 ? `+${r.bonusAmount.toLocaleString()} ฿` : '0 ฿'}
+                          <td className="p-3 text-right font-mono font-bold text-[#783E10]">
+                            {r.diligenceAmount > 0 ? (
+                              <span className="text-emerald-700 font-extrabold">+500 ฿</span>
+                            ) : (
+                              <span className="text-stone-400 font-normal">0 ฿</span>
+                            )}
                           </td>
-                          <td className="p-3 text-right font-mono font-bold text-sky-600">
-                            {r.diligenceAmount > 0 ? `+${r.diligenceAmount.toLocaleString()} ฿` : '0 ฿'}
+                          <td className="p-3 text-stone-700">
+                            <div className="space-y-1">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="font-bold text-[11px] text-stone-800">
+                                  หยุดรวม {r.totalDaysOff} วัน
+                                </span>
+                                {r.totalDaysOff > 0 && (
+                                  <span className="text-[10px] font-medium text-stone-500">
+                                    (ธรรมดา {r.weekdayDaysOffCount} วัน, ส.-อา. {r.weekendDaysOffCount} วัน)
+                                  </span>
+                                )}
+                              </div>
+                              {r.dayOffDetails.length > 0 ? (
+                                <div className="flex flex-wrap gap-1 pt-0.5">
+                                  {r.dayOffDetails.map((day, idx) => (
+                                    <span
+                                      key={idx}
+                                      className={`text-[9px] font-bold px-2 py-0.5 rounded-full border whitespace-nowrap ${
+                                        day.isWeekend
+                                          ? 'bg-[#FCDAD7] text-[#802227] border-[#F8B7B2]'
+                                          : 'bg-[#D8F3E5] text-[#14533C] border-[#B6E7CE]'
+                                      }`}
+                                      title={`${day.dateStr} (${day.dayName}): ${day.reason}`}
+                                    >
+                                      {day.dateStr.slice(8)} ({day.dayName}) {day.isWeekend ? '🛑 หัก 500฿' : '🟢 หยุดประจำสัปดาห์'}
+                                    </span>
+                                  ))}
+                                </div>
+                              ) : (
+                                <span className="text-[10px] text-stone-400 italic">ไม่มีวันหยุดในเดือนนี้</span>
+                              )}
+                            </div>
                           </td>
-                          <td className="p-3 text-right font-mono font-black text-sm text-red-600 bg-red-50/50">
-                            +{r.totalNetPay.toLocaleString()} ฿
+                          <td className="p-3 text-right font-mono font-bold text-red-600">
+                            {r.totalWeekendDeduction > 0 ? (
+                              <span className="bg-[#FCDAD7] text-[#802227] px-2 py-0.5 rounded-full text-xs">
+                                -{r.totalWeekendDeduction.toLocaleString()} ฿
+                              </span>
+                            ) : (
+                              <span className="text-stone-400 font-normal">0 ฿</span>
+                            )}
                           </td>
-                          <td className="p-3 text-slate-600 text-[11px]">
-                            {r.diligenceStatus}
+                          <td className="p-3 text-right font-mono font-black text-sm text-stone-900 bg-[#F5EFEA]/50">
+                            {r.totalNetPay >= 0 ? `+${r.totalNetPay.toLocaleString()}` : `${r.totalNetPay.toLocaleString()}`} ฿
                           </td>
                         </tr>
                       ))
@@ -2024,70 +2620,356 @@ export default function AdminDashboardPage() {
       })()}
 
       {/* TAB 3: ATTENDANCE LOGS */}
-      {activeTab === 'logs' && (
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-4">
-          <h2 className="font-bold text-slate-900 text-base">
-            📋 ประวัติลงเวลาเข้า-ออกงาน ({formatThaiMonth(selectedMonthYear)})
-          </h2>
+      {activeTab === 'logs' && (() => {
+        // Extract all unique dates in the current selectedMonthYear
+        const [yearStr, monthStr] = selectedMonthYear.split('-');
+        const year = parseInt(yearStr, 10);
+        const month = parseInt(monthStr, 10);
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs border-collapse">
-              <thead>
-                <tr className="bg-slate-100 text-slate-700 font-bold border-b border-slate-200">
-                  <th className="p-3">วันที่ / เวลาเข้างาน</th>
-                  <th className="p-3">พนักงาน</th>
-                  <th className="p-3">วิธียืนยันตัวตน</th>
-                  <th className="p-3">สาขาที่เข้างานจริง</th>
-                  <th className="p-3">สถานะ</th>
-                  <th className="p-3">หมายเหตุ</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-200">
-                {attendanceLogs.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="p-4 text-center text-slate-400">ยังไม่มีประวัติการเข้างานในเดือนนี้</td>
-                  </tr>
-                ) : (
-                  attendanceLogs.map((log) => (
-                    <tr key={log.id} className="hover:bg-slate-50">
-                      <td className="p-3 font-medium text-slate-900">
-                        {log.dateStr}
-                        <br />
-                        <span className="text-slate-500">{new Date(log.clockInAt).toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok' })}</span>
-                      </td>
-                      <td className="p-3 font-bold text-slate-900">
-                        {log.employee?.fullName} ({log.employee?.nickname})
-                      </td>
-                      <td className="p-3 font-bold">
-                        {log.verificationMethod === 'PIN_CODE' ? (
-                          <span className="text-amber-800 bg-amber-100 border border-amber-300 px-2 py-0.5 rounded text-[10px]">
-                            🔑 รหัส PIN พนักงาน
-                          </span>
-                        ) : (
-                          <span className="text-sky-800 bg-sky-100 border border-sky-300 px-2 py-0.5 rounded text-[10px]">
-                            🔑 รหัส PIN ประจำตัว
-                          </span>
-                        )}
-                      </td>
-                      <td className="p-3 font-bold text-red-600">{log.branch?.name}</td>
-                      <td className="p-3">
-                        <span
-                          className={`px-2.5 py-0.5 rounded-full font-bold text-[10px] text-white ${
-                            log.status === 'ON_TIME' ? 'bg-emerald-600' : 'bg-amber-600'
-                          }`}
-                        >
-                          {log.status === 'ON_TIME' ? 'ตรงเวลา' : `สาย ${log.lateMinutes} นาที`}
+        const thaiDateNow = getThaiDateStr();
+        const [nowYear, nowMonth, nowDay] = thaiDateNow.split('-').map((v) => parseInt(v, 10));
+
+        let lastDay = new Date(year, month, 0).getDate();
+        if (year === nowYear && month === nowMonth) {
+          lastDay = Math.min(lastDay, nowDay);
+        }
+
+        const thaiDayNames = ['อาทิตย์', 'จันทร์', 'อังคาร', 'พุธ', 'พฤหัสบดี', 'ศุกร์', 'เสาร์'];
+        const monthDatesList: { dateStr: string; dayName: string }[] = [];
+        for (let day = lastDay; day >= 1; day--) {
+          const dStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+          const dObj = new Date(dStr + 'T00:00:00');
+          const dayName = thaiDayNames[dObj.getDay()];
+          monthDatesList.push({ dateStr: dStr, dayName });
+        }
+
+        const filteredLogs = attendanceLogs.filter((log) => {
+          if (selectedLogsDateStr !== 'ALL' && log.dateStr !== selectedLogsDateStr) return false;
+          if (
+            selectedLogsBranchId !== 'ALL' &&
+            log.branchId !== selectedLogsBranchId &&
+            log.branch?.id !== selectedLogsBranchId
+          )
+            return false;
+          if (
+            selectedLogsEmpId !== 'ALL' &&
+            log.employeeId !== selectedLogsEmpId &&
+            log.employee?.id !== selectedLogsEmpId
+          )
+            return false;
+          return true;
+        });
+
+        // Audit & Bonus Verification Info when date or branch is filtered
+        let matchedSalesRecord: any = null;
+        if (selectedLogsDateStr !== 'ALL' && selectedLogsBranchId !== 'ALL') {
+          matchedSalesRecord = salesRecords.find(
+            (s) =>
+              s.dateStr === selectedLogsDateStr &&
+              (s.branchId === selectedLogsBranchId || s.branch?.id === selectedLogsBranchId)
+          );
+        }
+
+        const workingFullTimeCount = filteredLogs.filter((l) => l.employee?.employmentType !== 'PART_TIME').length;
+        const workingPartTimeCount = filteredLogs.filter((l) => l.employee?.employmentType === 'PART_TIME').length;
+
+        return (
+          <div className="bg-[#FCFAF7] p-5 rounded-3xl border border-[#EBE4D8] shadow-xs space-y-4">
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-4 rounded-2xl border border-[#EBE4D8]">
+              <div>
+                <h2 className="font-extrabold text-stone-900 text-base flex items-center gap-2">
+                  <span>📋 ประวัติลงเวลาเข้า-ออกงาน ({formatThaiMonth(selectedMonthYear)})</span>
+                </h2>
+                <p className="text-xs text-stone-500 mt-0.5">
+                  แสดง <strong className="text-stone-900">{filteredLogs.length} รายการ</strong> (จากทั้งหมด {attendanceLogs.length} รายการในเดือนนี้)
+                </p>
+              </div>
+
+              {/* FILTER CONTROLS: MONTH, DATE, BRANCH, EMPLOYEE */}
+              <div className="flex items-center gap-2 flex-wrap w-full md:w-auto">
+                <div className="flex items-center gap-1">
+                  <label className="text-xs font-bold text-stone-700 whitespace-nowrap">📅 ประจำเดือน:</label>
+                  <select
+                    value={selectedMonthYear}
+                    onChange={(e) => {
+                      setSelectedMonthYear(e.target.value);
+                      setSelectedLogsDateStr('ALL');
+                    }}
+                    className="p-2.5 bg-[#F5EFEA] border border-[#EBE4D8] rounded-xl font-bold text-[#F97316] text-xs focus:ring-2 focus:ring-[#F97316] outline-none cursor-pointer"
+                  >
+                    {allMonthOptions.map((opt) => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="flex items-center gap-1">
+                  <label className="text-xs font-bold text-stone-700 whitespace-nowrap">📅 วันที่:</label>
+                  <select
+                    value={selectedLogsDateStr}
+                    onChange={(e) => setSelectedLogsDateStr(e.target.value)}
+                    className="p-2.5 bg-[#F5EFEA] border border-[#EBE4D8] rounded-xl font-bold text-[#F97316] text-xs focus:ring-2 focus:ring-[#F97316] outline-none cursor-pointer"
+                  >
+                    <option value="ALL">📅 แสดงทุกวัน ({monthDatesList.length} วัน)</option>
+                    {monthDatesList.map((item) => (
+                      <option key={item.dateStr} value={item.dateStr}>
+                        {item.dateStr.slice(8)}/{item.dateStr.slice(5, 7)} ({item.dayName})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="flex items-center gap-1">
+                  <label className="text-xs font-bold text-stone-700 whitespace-nowrap">🏬 สาขาที่เข้างาน:</label>
+                  <select
+                    value={selectedLogsBranchId}
+                    onChange={(e) => setSelectedLogsBranchId(e.target.value)}
+                    className="p-2.5 bg-[#F5EFEA] border border-[#EBE4D8] rounded-xl font-bold text-[#F97316] text-xs focus:ring-2 focus:ring-[#F97316] outline-none cursor-pointer"
+                  >
+                    <option value="ALL">🌐 ทุกสาขา</option>
+                    {branches.map((b) => (
+                      <option key={b.id} value={b.id}>
+                        🏬 {b.name} ({b.code})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="flex items-center gap-1">
+                  <label className="text-xs font-bold text-stone-700 whitespace-nowrap">👤 พนักงาน:</label>
+                  <select
+                    value={selectedLogsEmpId}
+                    onChange={(e) => setSelectedLogsEmpId(e.target.value)}
+                    className="p-2.5 bg-[#F5EFEA] border border-[#EBE4D8] rounded-xl font-bold text-stone-900 text-xs focus:ring-2 focus:ring-[#F97316] outline-none cursor-pointer"
+                  >
+                    <option value="ALL">👥 ทุกคน ({employees.length} คน)</option>
+                    {employees.map((emp) => (
+                      <option key={emp.id} value={emp.id}>
+                        {emp.fullName} ({emp.nickname || 'พนักงาน'})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            {/* AUDIT & BONUS RE-CHECK BAR */}
+            {(selectedLogsDateStr !== 'ALL' || selectedLogsBranchId !== 'ALL' || selectedLogsEmpId !== 'ALL') && (
+              <div className="bg-emerald-50 border border-emerald-200 p-4 rounded-2xl space-y-2 text-xs">
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap font-bold text-emerald-900">
+                    <span>🔍 ผลการกรองตรวจสอบ:</span>
+                    <span className="bg-white px-2.5 py-1 rounded-lg border border-emerald-300 text-stone-900">
+                      👥 พนักงานเข้างานจริง: <strong>{filteredLogs.length} คน</strong> (Full-Time {workingFullTimeCount} คน{workingPartTimeCount > 0 ? `, PT ${workingPartTimeCount} คน` : ''})
+                    </span>
+                  </div>
+
+                  {matchedSalesRecord && (
+                    <div className="bg-white px-3 py-1.5 rounded-xl border border-emerald-300 text-emerald-950 font-bold flex items-center gap-2 flex-wrap">
+                      <span>💰 ยอดขายประจำวัน: <strong>{matchedSalesRecord.totalSales.toLocaleString()} ฿</strong></span>
+                      {matchedSalesRecord.bonusPayouts && matchedSalesRecord.bonusPayouts.length > 0 ? (
+                        <span className="bg-emerald-100 text-emerald-800 border border-emerald-300 px-2 py-0.5 rounded-full text-[11px] font-extrabold">
+                          🎉 โบนัสผ่านเกณฑ์ (+{matchedSalesRecord.bonusPayouts[0]?.amount}฿/คน)
                         </span>
+                      ) : (
+                        <span className="bg-amber-100 text-amber-900 border border-amber-300 px-2 py-0.5 rounded-full text-[11px] font-extrabold">
+                          ℹ️ ไม่ผ่านเกณฑ์โบนัส
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            <div className="overflow-x-auto rounded-2xl border border-[#EBE4D8]">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead>
+                  <tr className="bg-[#F5EFEA] text-stone-800 font-bold border-b border-[#EBE4D8]">
+                    <th className="p-3">วันที่ / เวลาเข้างาน</th>
+                    <th className="p-3">พนักงาน</th>
+                    <th className="p-3">สาขาที่เข้างานจริง</th>
+                    <th className="p-3">สถานะ</th>
+                    <th className="p-3">หมายเหตุ</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#EBE4D8] bg-white">
+                  {filteredLogs.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="p-8 text-center text-stone-500">
+                        <div className="flex flex-col items-center justify-center gap-2">
+                          <span className="text-2xl">🔍</span>
+                          <span className="font-bold text-xs">
+                            ไม่พบประวัติการเข้างานตามเงื่อนไขที่เลือกในเดือน {formatThaiMonth(selectedMonthYear)}
+                          </span>
+                          {(selectedLogsDateStr !== 'ALL' || selectedLogsBranchId !== 'ALL' || selectedLogsEmpId !== 'ALL') && (
+                            <button
+                              onClick={() => {
+                                setSelectedLogsDateStr('ALL');
+                                setSelectedLogsBranchId('ALL');
+                                setSelectedLogsEmpId('ALL');
+                              }}
+                              className="mt-1 px-3 py-1 bg-[#F5EFEA] hover:bg-[#E5DDD4] text-[#F97316] font-bold text-xs rounded-xl border border-[#E5DDD4] transition cursor-pointer"
+                            >
+                              🔄 ล้างตัวกรองทั้งหมด (แสดงข้อมูลทั้งเดือน)
+                            </button>
+                          )}
+                        </div>
                       </td>
-                      <td className="p-3 text-slate-600 text-[11px]">{log.notes || '-'}</td>
                     </tr>
-                  ))
+                  ) : (
+                    filteredLogs.map((log) => {
+                    const isAbsent = log.status === 'ABSENT' || log.lateMinutes > 30;
+                    const isLate = !isAbsent && (log.status === 'LATE' || log.lateMinutes > 15);
+
+                    return (
+                      <tr key={log.id} className="hover:bg-[#FAF5EF] transition-colors">
+                        <td className="p-3 font-medium text-stone-900">
+                          {log.dateStr}
+                          <br />
+                          <span className="text-stone-500 font-mono text-[11px]">
+                            {new Date(log.clockInAt).toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok' })}
+                          </span>
+                        </td>
+                        <td className="p-3 font-bold text-stone-900">
+                          {log.employee?.fullName} ({log.employee?.nickname})
+                        </td>
+                        <td className="p-3 font-bold text-[#F97316]">{log.branch?.name}</td>
+                        <td className="p-3">
+                          <div className="flex flex-col gap-1 items-start">
+                            <span
+                              className={`px-3 py-1 rounded-full font-bold text-[11px] inline-flex items-center gap-1 shadow-xs ${
+                                isAbsent
+                                  ? 'bg-[#FCDAD7] text-[#802227] border border-[#F8B7B2]'
+                                  : isLate
+                                  ? 'bg-[#FCE5CD] text-[#783E10] border border-[#F9D3AD]'
+                                  : 'bg-[#D8F3E5] text-[#14533C] border border-[#B6E7CE]'
+                              }`}
+                            >
+                              {isAbsent ? `🛑 ขาดงาน (สาย ${log.lateMinutes} นาที)` : isLate ? `⚠️ สาย ${log.lateMinutes} นาที` : '🟢 ตรงเวลา'}
+                            </span>
+                            {(log.verificationMethod === 'MANAGER_OVERRIDE' || log.notes?.includes('แก้ไขโดย Admin')) && (
+                              <span className="text-[9px] font-extrabold text-[#783E10] bg-[#FCE5CD] border border-[#F9D3AD] px-2 py-0.5 rounded-full whitespace-nowrap">
+                                🛠️ (แก้ไขโดย Admin)
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="p-3 text-stone-700 text-[11px]">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="break-words max-w-[180px]">
+                              {log.notes ? log.notes : <span className="text-stone-400 italic">ไม่มีหมายเหตุ</span>}
+                            </span>
+                            <div className="flex items-center gap-1.5 flex-shrink-0">
+                              <button
+                                onClick={() => {
+                                  setEditingLog(log);
+                                  setEditingStatus(log.status || 'ON_TIME');
+                                  setEditingNoteText(log.notes || '');
+                                }}
+                                className="px-2.5 py-1 text-stone-700 hover:text-stone-900 bg-[#F5EFEA] hover:bg-[#E5DDD4] border border-[#E5DDD4] rounded-xl transition text-[10px] font-bold flex items-center gap-1 flex-shrink-0 cursor-pointer shadow-xs"
+                                title="แก้ไขสถานะ/หมายเหตุ"
+                              >
+                                <span>✏️</span>
+                                <span>แก้ไข</span>
+                              </button>
+                              <button
+                                onClick={() => handleDeleteLog(log.id, log.employee?.fullName || 'พนักงาน', log.dateStr)}
+                                className="px-2 py-1 text-red-700 hover:text-red-900 bg-red-50 hover:bg-red-100 border border-red-200 rounded-xl transition text-[10px] font-bold flex items-center gap-1 flex-shrink-0 cursor-pointer shadow-xs"
+                                title="ลบรายการประวัติการเข้างานนี้"
+                              >
+                                <span>🗑️</span>
+                                <span>ลบ</span>
+                              </button>
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
                 )}
               </tbody>
             </table>
           </div>
+
+          {/* Status & Note Edit Modal */}
+          {editingLog && (
+            <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4">
+              <div className="bg-[#FCFAF7] border border-[#EBE4D8] rounded-3xl p-6 max-w-md w-full shadow-xl space-y-4 animate-in fade-in zoom-in-95 duration-150">
+                <div className="flex items-center justify-between border-b border-[#EBE4D8] pb-3">
+                  <h3 className="font-bold text-stone-900 text-sm flex items-center gap-2">
+                    <span>✏️ แก้ไขสถานะ / หมายเหตุการเข้างาน</span>
+                  </h3>
+                  <button
+                    onClick={() => setEditingLog(null)}
+                    className="text-stone-400 hover:text-stone-700 text-sm font-bold cursor-pointer"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                <div className="space-y-3">
+                  <div className="bg-[#F5EFEA] p-3 rounded-2xl border border-[#E5DDD4] text-xs space-y-1">
+                    <p className="text-stone-700 font-bold">
+                      👤 พนักงาน: <span className="text-stone-900">{editingLog.employee?.fullName} ({editingLog.employee?.nickname})</span>
+                    </p>
+                    <p className="text-stone-500 font-medium">
+                      📅 วันที่: {editingLog.dateStr} | สาขา: {editingLog.branch?.name}
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-stone-800 mb-1">
+                      📌 ปรับเปลี่ยนสถานะการเข้างาน:
+                    </label>
+                    <select
+                      value={editingStatus}
+                      onChange={(e) => setEditingStatus(e.target.value)}
+                      className="w-full p-3 bg-white border border-[#E5DDD4] rounded-2xl text-xs font-bold text-stone-900 focus:ring-2 focus:ring-[#F97316] outline-none cursor-pointer"
+                    >
+                      <option value="ON_TIME">🟢 ตรงเวลา (ON_TIME) - รีเซ็ตนาทีสายเป็น 0</option>
+                      <option value="LATE">⚠️ มาสาย (LATE)</option>
+                      <option value="ABSENT">🛑 ขาดงาน (ABSENT)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-stone-800 mb-1">
+                      📝 ข้อความหมายเหตุเพิ่มเติม:
+                    </label>
+                    <textarea
+                      value={editingNoteText}
+                      onChange={(e) => setEditingNoteText(e.target.value)}
+                      placeholder="ระบุเหตุผล เช่น พนักงานลืมกดสแกนแต่มาจริง (ระบบจะใส่ (แก้ไขโดย Admin) ให้อัตโนมัติ)..."
+                      rows={3}
+                      className="w-full p-3 bg-white border border-[#E5DDD4] rounded-2xl text-xs font-medium text-stone-900 focus:ring-2 focus:ring-[#F97316] outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex justify-end gap-2 pt-2 border-t border-[#EBE4D8]">
+                  <button
+                    onClick={() => setEditingLog(null)}
+                    className="px-4 py-2 rounded-2xl bg-[#EFE8E2] hover:bg-[#E5DDD4] text-stone-800 text-xs font-bold transition cursor-pointer"
+                  >
+                    ยกเลิก
+                  </button>
+                  <button
+                    onClick={handleSaveNote}
+                    disabled={isSavingNote}
+                    className="px-5 py-2 rounded-2xl bg-[#2D2A26] hover:bg-[#1E1C1A] text-white text-xs font-bold transition shadow-xs cursor-pointer disabled:opacity-50"
+                  >
+                    {isSavingNote ? 'กำลังบันทึก...' : '💾 บันทึกการแก้ไข ( Admin)'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
-      )}
+        );
+      })()}
 
       {/* TAB 4: BRANCHES & GPS COORDINATE LOCK EDITOR */}
       {activeTab === 'branches' && (
@@ -2657,6 +3539,94 @@ export default function AdminDashboardPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Sales Bonus Condition Rules Modal */}
+      {showBonusRuleModal && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-[#FCFAF7] border border-[#EBE4D8] rounded-3xl p-6 max-w-lg w-full shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between border-b border-[#EBE4D8] pb-3">
+              <h3 className="font-extrabold text-stone-900 text-sm flex items-center gap-2">
+                <span>🎯 เกณฑ์การคำนวณโบนัสยอดขายประจำวัน (Daily Sales Bonus Rules)</span>
+              </h3>
+              <button
+                onClick={() => setShowBonusRuleModal(false)}
+                className="text-stone-400 hover:text-stone-700 font-bold text-sm cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs text-stone-700">
+              <p className="font-medium text-stone-600">
+                โบนัสคำนวณจาก <strong>ยอดขายสุทธิประจำวันของแต่ละสาขา</strong> หารเฉลี่ยให้เฉพาะ <strong>พนักงาน Full-Time</strong> ที่สแกนเข้างานจริงในวันนั้น ตามเกณฑ์จำนวนคนดังนี้:
+              </p>
+
+              <div className="overflow-x-auto border border-[#E5DDD4] rounded-2xl">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead>
+                    <tr className="bg-[#F5EFEA] text-stone-800 font-bold border-b border-[#E5DDD4]">
+                      <th className="p-2.5">ยอดขายสาขา/วัน</th>
+                      <th className="p-2.5 text-center">พนักงานเกณฑ์</th>
+                      <th className="p-2.5 text-right">โบนัสมาตรฐาน</th>
+                      <th className="p-2.5 text-right text-[#F97316]">โบนัสพิเศษ (พนักงานขาด 1 คน)</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[#E5DDD4] bg-white font-medium">
+                    <tr className="hover:bg-[#FAF5EF]">
+                      <td className="p-2.5 font-bold text-emerald-700">&gt; 42,000 บาท</td>
+                      <td className="p-2.5 text-center font-bold">6 คนขึ้นไป</td>
+                      <td className="p-2.5 text-right font-bold text-emerald-600">+100 ฿/คน</td>
+                      <td className="p-2.5 text-right font-bold text-[#F97316]">
+                        +200 ฿/คน <span className="text-[10px] text-stone-500 font-normal">(ถ้าเหลือ 5 คน)</span>
+                      </td>
+                    </tr>
+                    <tr className="hover:bg-[#FAF5EF]">
+                      <td className="p-2.5 font-bold text-emerald-700">&gt; 35,000 บาท</td>
+                      <td className="p-2.5 text-center font-bold">5 คนขึ้นไป</td>
+                      <td className="p-2.5 text-right font-bold text-emerald-600">+100 ฿/คน</td>
+                      <td className="p-2.5 text-right font-bold text-[#F97316]">
+                        +200 ฿/คน <span className="text-[10px] text-stone-500 font-normal">(ถ้าเหลือ 4 คน)</span>
+                      </td>
+                    </tr>
+                    <tr className="hover:bg-[#FAF5EF]">
+                      <td className="p-2.5 font-bold text-emerald-700">&gt; 28,000 บาท</td>
+                      <td className="p-2.5 text-center font-bold">4 คนขึ้นไป</td>
+                      <td className="p-2.5 text-right font-bold text-emerald-600">+100 ฿/คน</td>
+                      <td className="p-2.5 text-right font-bold text-[#F97316]">
+                        +200 ฿/คน <span className="text-[10px] text-stone-500 font-normal">(ถ้าเหลือ 3 คน)</span>
+                      </td>
+                    </tr>
+                    <tr className="hover:bg-[#FAF5EF]">
+                      <td className="p-2.5 font-bold text-emerald-700">&gt; 21,000 บาท</td>
+                      <td className="p-2.5 text-center font-bold">3 คนขึ้นไป</td>
+                      <td className="p-2.5 text-right font-bold text-emerald-600">+100 ฿/คน</td>
+                      <td className="p-2.5 text-right font-bold text-[#F97316]">
+                        +200 ฿/คน <span className="text-[10px] text-stone-500 font-normal">(ถ้าเหลือ 2 คน)</span>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="bg-[#F5EFEA] p-3.5 rounded-2xl border border-[#E5DDD4] space-y-1.5 text-[11px] text-stone-600">
+                <p className="font-bold text-stone-800">📌 หมายเหตุเงื่อนไขเพิ่มเติม:</p>
+                <ul className="list-disc list-inside space-y-1 pl-1">
+                  <li>การคิดโบนัสอิงตามจำนวนพนักงาน <strong>Full-Time</strong> ที่เข้าปฏิบัติงานจริงในวันดังกล่าว</li>
+                  <li>หากพนักงานทำงานน้อยกว่าเกณฑ์เป้าหมาย 1 คน (Understaffed) จะได้รับอัตราพิเศษ <strong>200 บาท/คน</strong></li>
+                  <li>ยอดขายไม่ถึง 21,000 บาท จะไม่มีการจ่ายโบนัสยอดขายสำหรับวันนั้น</li>
+                </ul>
+              </div>
+            </div>
+
+            <button
+              onClick={() => setShowBonusRuleModal(false)}
+              className="w-full py-3 bg-[#2D2A26] hover:bg-[#1E1C1A] text-white font-extrabold text-xs rounded-2xl transition shadow-xs cursor-pointer"
+            >
+              ตกลง (เข้าใจเงื่อนไข)
+            </button>
           </div>
         </div>
       )}

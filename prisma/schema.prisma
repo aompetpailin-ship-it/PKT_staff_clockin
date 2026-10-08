@@ -101,16 +101,17 @@ model Attendance {
 }
 
 model DailySales {
-  id          String        @id @default(uuid())
-  branchId    String
-  dateStr     String        // YYYY-MM-DD
-  totalSales  Float
-  recordedBy  String?
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
+  id                 String        @id @default(uuid())
+  branchId           String
+  dateStr            String        // YYYY-MM-DD
+  totalSales         Float
+  recordedBy         String?
+  staffCountOverride Int?
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
 
-  branch      Branch        @relation(fields: [branchId], references: [id], onDelete: Cascade)
-  bonusPayouts BonusPayout[]
+  branch             Branch        @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  bonusPayouts       BonusPayout[]
 
   @@unique([branchId, dateStr])
 }

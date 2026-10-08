@@ -7,8 +7,8 @@ export async function POST(request: Request) {
     const body = await request.json();
     const { attendanceId, employeeId } = body;
 
-    const now = getThaiNow();
-    const dateStr = getThaiDateStr();
+    const now = new Date();
+    const dateStr = getThaiDateStr(now);
 
     let attendance;
     if (attendanceId) {

@@ -47,11 +47,13 @@ export default function StaffClockInPage() {
   const [isWithinGeofence, setIsWithinGeofence] = useState<boolean | null>(null);
   const [gpsError, setGpsError] = useState<string | null>(null);
   const [isGettingGps, setIsGettingGps] = useState<boolean>(false);
+  const [showGpsGuideModal, setShowGpsGuideModal] = useState<boolean>(false);
 
   // Feedback & Loading
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [alertMsg, setAlertMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [todayLogs, setTodayLogs] = useState<any[]>([]);
+  const [successModalData, setSuccessModalData] = useState<{ type: 'CLOCK_IN' | 'CLOCK_OUT'; attendance: any } | null>(null);
 
   // Searchable Employee Selection Modal State
   const [isEmpModalOpen, setIsEmpModalOpen] = useState<boolean>(false);
@@ -188,7 +190,12 @@ export default function StaffClockInPage() {
       },
       (err) => {
         console.error(err);
-        setGpsError('ไม่สามารถดึงพิกัด GPS ได้ กรุณาอนุญาตเปิดใช้งาน Location');
+        if (err.code === 1) {
+          setGpsError('🚫 สิทธิ์ GPS ถูกบล็อก: กรุณาแตะแม่กุญแจ 🔒 ที่แถบลิงก์ด้านบนเพื่อเปลี่ยนเป็น "อนุญาต"');
+          setShowGpsGuideModal(true);
+        } else {
+          setGpsError('ไม่สามารถดึงพิกัด GPS ได้ กรุณาเปิดใช้งาน GPS/Location บนโทรศัพท์');
+        }
         setIsGettingGps(false);
       },
       { enableHighAccuracy: true, timeout: 10000 }
@@ -234,9 +241,12 @@ export default function StaffClockInPage() {
 
       const data = await res.json();
       if (data.success) {
-        setAlertMsg({ type: 'success', text: data.message });
+        setAlertMsg({ type: 'success', text: data.message || 'บันทึกเวลาเข้างานเรียบร้อยแล้ว' });
         setPinCodeInput('');
         fetchTodayLogs(selectedEmpId);
+        if (data.attendance) {
+          setSuccessModalData({ type: 'CLOCK_IN', attendance: data.attendance });
+        }
       } else {
         setAlertMsg({ type: 'error', text: data.error });
       }
@@ -267,8 +277,11 @@ export default function StaffClockInPage() {
 
       const data = await res.json();
       if (data.success) {
-        setAlertMsg({ type: 'success', text: data.message });
+        setAlertMsg({ type: 'success', text: data.message || 'บันทึกเวลาออกงานเรียบร้อยแล้ว' });
         fetchTodayLogs(selectedEmpId);
+        if (data.attendance) {
+          setSuccessModalData({ type: 'CLOCK_OUT', attendance: data.attendance });
+        }
       } else {
         setAlertMsg({ type: 'error', text: data.error });
       }
@@ -283,30 +296,15 @@ export default function StaffClockInPage() {
   const selectedEmp = employees.find((e) => e.id === selectedEmpId);
 
   return (
-    <div className="max-w-md mx-auto space-y-4 py-2">
-      {/* Clean Modern Brand Header */}
-      <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm flex flex-col items-center text-center">
-        {/* Official Logo */}
-        <div className="w-16 h-16 bg-white p-1 rounded-2xl border border-slate-200 shadow-sm mb-2.5">
-          {/* eslint-disable-next-html-extension/no-img-element */}
-          <img src="/logo.png" alt="ร้านผมขอทอด" className="w-full h-full object-contain" />
-        </div>
-
-        <h1 className="text-xl font-extrabold text-slate-900 tracking-tight">
-          ร้านผมขอทอด
-        </h1>
-        <p className="text-xs text-orange-500 font-bold tracking-wide mt-0.5">
-          "ที่มันอร่อยเกินไป" • ระบบลงเวลา 4 สาขา
-        </p>
-      </div>
+    <div className="max-w-md mx-auto space-y-4 py-1">
 
       {/* Alert Banner */}
       {alertMsg && (
         <div
-          className={`p-3.5 rounded-2xl text-xs font-bold border transition-all shadow-sm ${
+          className={`p-3.5 rounded-2xl text-xs font-bold border transition-all shadow-xs ${
             alertMsg.type === 'success'
-              ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
-              : 'bg-rose-50 text-rose-800 border-rose-200'
+              ? 'bg-[#D8F3E5] text-[#14533C] border-[#B6E7CE]'
+              : 'bg-[#FCDAD7] text-[#802227] border-[#F8B7B2]'
           }`}
         >
           {alertMsg.type === 'success' ? '✅ ' : '⚠️ '}
@@ -314,20 +312,20 @@ export default function StaffClockInPage() {
         </div>
       )}
 
-      {/* Clean Modern Main Card */}
-      <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-200 space-y-4">
+      {/* Warm Cream Main Card */}
+      <div className="bg-[#FCFAF7] rounded-3xl p-5 shadow-xs border border-[#EBE4D8] space-y-4">
         {/* Employee Selection */}
         <div>
           <div className="flex justify-between items-center mb-1.5">
-            <label className="block text-xs font-bold text-slate-800">
+            <label className="block text-xs font-bold text-stone-800">
               👤 พนักงาน (LINE Profile):
             </label>
             {selectedEmp && (
               <span
                 className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full ${
                   selectedEmp.employmentType === 'PART_TIME'
-                    ? 'bg-amber-100 text-amber-800 border border-amber-200'
-                    : 'bg-sky-100 text-sky-800 border border-sky-200'
+                    ? 'bg-[#FCE5CD] text-[#783E10] border border-[#F9D3AD]'
+                    : 'bg-[#E3E0F8] text-[#342D69] border border-[#C9C4F3]'
                 }`}
               >
                 {selectedEmp.employmentType === 'PART_TIME' ? '⏳ Part-Time' : '💼 Full-Time'}
@@ -336,24 +334,24 @@ export default function StaffClockInPage() {
           </div>
 
           {/* Selected Employee Display Card + Quick Search Button */}
-          <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 flex items-center justify-between gap-2.5">
+          <div className="bg-[#F5EFEA] border border-[#E5DDD4] rounded-2xl p-3 flex items-center justify-between gap-2.5">
             <div className="flex items-center gap-3 overflow-hidden">
               {selectedEmp?.avatarUrl ? (
                 <img
                   src={selectedEmp.avatarUrl}
                   alt={selectedEmp.fullName}
-                  className="w-10 h-10 rounded-full object-cover border border-slate-200 shadow-sm flex-shrink-0"
+                  className="w-10 h-10 rounded-full object-cover border border-[#E5DDD4] shadow-xs flex-shrink-0"
                 />
               ) : (
-                <div className="w-10 h-10 rounded-full bg-orange-500 text-white font-bold text-base flex items-center justify-center flex-shrink-0 shadow-sm">
+                <div className="w-10 h-10 rounded-full bg-[#F97316] text-white font-bold text-base flex items-center justify-center flex-shrink-0 shadow-xs">
                   {selectedEmp?.nickname ? selectedEmp.nickname[0] : '👤'}
                 </div>
               )}
               <div className="min-w-0">
-                <p className="font-extrabold text-xs text-slate-900 truncate">
+                <p className="font-extrabold text-xs text-stone-900 truncate">
                   {selectedEmp ? `${selectedEmp.fullName} (${selectedEmp.nickname || selectedEmp.role})` : 'ยังไม่ได้เลือกพนักงาน'}
                 </p>
-                <p className="text-[10px] text-slate-500 font-bold flex items-center gap-1 pt-0.5">
+                <p className="text-[10px] text-stone-500 font-bold flex items-center gap-1 pt-0.5">
                   <span>🏬 {selectedEmp?.homeBranch?.name || 'ไม่มีสาขาหลัก'}</span>
                 </p>
               </div>
@@ -365,7 +363,7 @@ export default function StaffClockInPage() {
                 setEmpSearchQuery('');
                 setIsEmpModalOpen(true);
               }}
-              className="bg-orange-500 hover:bg-orange-600 text-white font-bold px-3 py-2 rounded-xl text-xs shadow-sm flex items-center gap-1 flex-shrink-0 transition active:scale-95 cursor-pointer"
+              className="bg-[#F97316] hover:bg-[#EA580C] text-white font-bold px-3.5 py-2 rounded-2xl text-xs shadow-xs flex items-center gap-1 flex-shrink-0 transition active:scale-95 cursor-pointer"
             >
               <span>🔍 ค้นหา / เปลี่ยน</span>
             </button>
@@ -374,13 +372,13 @@ export default function StaffClockInPage() {
 
         {/* Branch Selection */}
         <div>
-          <label className="block text-xs font-bold text-slate-800 mb-1.5">
+          <label className="block text-xs font-bold text-stone-800 mb-1.5">
             🏪 เลือกสาขาที่เข้างาน (4 สาขา):
           </label>
           <select
             value={selectedBranchId}
             onChange={(e) => setSelectedBranchId(e.target.value)}
-            className="w-full p-3 bg-slate-50 border border-slate-200 text-slate-900 font-bold rounded-xl text-xs focus:ring-2 focus:ring-orange-500 outline-none transition"
+            className="w-full p-3 bg-[#F5EFEA] border border-[#E5DDD4] text-stone-900 font-bold rounded-2xl text-xs focus:ring-2 focus:ring-[#F97316] outline-none transition"
           >
             {branches.map((b) => (
               <option key={b.id} value={b.id}>
@@ -391,36 +389,36 @@ export default function StaffClockInPage() {
         </div>
 
         {/* GPS Geofence Box */}
-        <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 space-y-2">
+        <div className="bg-[#F5EFEA] p-3.5 rounded-2xl border border-[#E5DDD4] space-y-2">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-800 flex items-center gap-1">
+            <span className="text-xs font-bold text-stone-800 flex items-center gap-1">
               <span>📍 พิกัด GPS Geofence:</span>
             </span>
             <button
               onClick={getGpsLocation}
               disabled={isGettingGps}
-              className="text-xs bg-slate-900 hover:bg-slate-800 text-white font-bold px-3 py-1.5 rounded-xl shadow-sm transition active:scale-95 disabled:opacity-50"
+              className="text-xs bg-[#2D2A26] hover:bg-[#1E1C1A] text-white font-bold px-3 py-1.5 rounded-2xl shadow-xs transition active:scale-95 disabled:opacity-50"
             >
               {isGettingGps ? 'กำลังเช็กพิกัด...' : '🔄 เช็กพิกัด GPS'}
             </button>
           </div>
 
           {gpsError && (
-            <p className="text-xs text-rose-600 font-bold">{gpsError}</p>
+            <p className="text-xs text-[#802227] font-bold">{gpsError}</p>
           )}
 
           {gpsLocation && selectedBranch && (
             <div className="text-xs space-y-1.5">
-              <p className="text-slate-500 font-mono text-[11px]">
+              <p className="text-stone-500 font-mono text-[11px]">
                 Latitude: {gpsLocation.lat.toFixed(6)}, Longitude: {gpsLocation.lng.toFixed(6)}
               </p>
               {distanceMeters !== null && (
                 <div className="flex items-center gap-2">
                   <span
-                    className={`px-3 py-1 rounded-full text-xs font-bold text-white shadow-sm ${
+                    className={`px-3 py-1 rounded-full text-xs font-bold text-white shadow-xs ${
                       isWithinGeofence
-                        ? 'bg-emerald-600'
-                        : 'bg-rose-600'
+                        ? 'bg-[#10B981]'
+                        : 'bg-[#EF4444]'
                     }`}
                   >
                     {isWithinGeofence
@@ -434,9 +432,9 @@ export default function StaffClockInPage() {
         </div>
 
         {/* PIN CODE ENTRY BOX */}
-        <div className="space-y-2 pt-1 border-t border-slate-100">
-          <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
-            <label className="block text-xs font-bold text-slate-800 flex items-center gap-1">
+        <div className="space-y-2 pt-1 border-t border-[#EBE4D8]">
+          <div className="p-3.5 bg-[#F5EFEA] border border-[#E5DDD4] rounded-2xl space-y-2">
+            <label className="block text-xs font-bold text-stone-800 flex items-center gap-1">
               <span>🔑 กรอกรหัส PIN ประจำตัวพนักงาน (4 หลัก):</span>
             </label>
             <input
@@ -445,9 +443,9 @@ export default function StaffClockInPage() {
               placeholder="••••"
               value={pinCodeInput}
               onChange={(e) => setPinCodeInput(e.target.value)}
-              className="w-full p-3 bg-white border border-slate-300 text-slate-900 rounded-xl font-mono text-center font-bold text-lg tracking-widest focus:ring-2 focus:ring-orange-500 outline-none shadow-sm"
+              className="w-full p-3 bg-white border border-[#E5DDD4] text-stone-900 rounded-2xl font-mono text-center font-bold text-lg tracking-widest focus:ring-2 focus:ring-[#F97316] outline-none shadow-xs"
             />
-            <p className="text-[11px] text-slate-500 text-center font-bold">
+            <p className="text-[11px] text-stone-500 text-center font-bold">
               🛡️ ล็อกเครื่อง: โทรศัพท์ 1 เครื่องใช้ลงเวลาเฉพาะพนักงานเจ้าของเครื่องเท่านั้น
             </p>
           </div>
@@ -458,7 +456,7 @@ export default function StaffClockInPage() {
           <button
             onClick={handleClockIn}
             disabled={isSubmitting || !isWithinGeofence}
-            className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3.5 px-4 rounded-xl text-xs md:text-sm shadow-sm transition active:scale-95 disabled:opacity-40 flex items-center justify-center gap-1.5"
+            className="w-full bg-[#10B981] hover:bg-[#059669] text-white font-bold py-3.5 px-4 rounded-2xl text-xs md:text-sm shadow-xs transition active:scale-95 disabled:opacity-40 flex items-center justify-center gap-1.5 cursor-pointer"
           >
             {isSubmitting ? 'กำลังบันทึก...' : '🟢 ลงเวลาเข้างาน'}
           </button>
@@ -466,7 +464,7 @@ export default function StaffClockInPage() {
           <button
             onClick={handleClockOut}
             disabled={isSubmitting}
-            className="w-full bg-slate-800 hover:bg-slate-900 text-white font-bold py-3.5 px-4 rounded-xl text-xs md:text-sm shadow-sm transition active:scale-95 disabled:opacity-40 flex items-center justify-center gap-1.5"
+            className="w-full bg-[#2D2A26] hover:bg-[#1E1C1A] text-white font-bold py-3.5 px-4 rounded-2xl text-xs md:text-sm shadow-xs transition active:scale-95 disabled:opacity-40 flex items-center justify-center gap-1.5 cursor-pointer"
           >
             🔴 ลงเวลาออกงาน
           </button>
@@ -475,28 +473,28 @@ export default function StaffClockInPage() {
 
       {/* Today Attendance Log Summary */}
       {selectedEmp && (
-        <div className="bg-white rounded-3xl p-5 shadow-xl border border-slate-200 space-y-3">
-          <h3 className="text-xs font-black text-slate-800 flex items-center gap-1.5">
+        <div className="bg-[#FCFAF7] rounded-3xl p-5 shadow-xs border border-[#EBE4D8] space-y-3">
+          <h3 className="text-xs font-extrabold text-stone-800 flex items-center gap-1.5">
             <span>📋 ประวัติการเข้างานวันนี้ ({selectedEmp.fullName})</span>
           </h3>
 
           {todayLogs.length === 0 ? (
-            <p className="text-xs text-slate-400 py-3 text-center">ยังไม่มีประวัติการเข้างานในวันนี้</p>
+            <p className="text-xs text-stone-400 py-3 text-center">ยังไม่มีประวัติการเข้างานในวันนี้</p>
           ) : (
             <div className="space-y-2">
               {todayLogs.map((log) => (
-                <div key={log.id} className="p-3 bg-slate-50 rounded-2xl border border-slate-200 text-xs space-y-1.5">
+                <div key={log.id} className="p-3 bg-[#F5EFEA] rounded-2xl border border-[#E5DDD4] text-xs space-y-1.5">
                   <div className="flex justify-between items-center font-bold">
-                    <span className="text-red-600 font-extrabold">🏪 {log.branch?.name}</span>
+                    <span className="text-[#F97316] font-extrabold">🏪 {log.branch?.name}</span>
                     <span
-                      className={`px-2.5 py-0.5 rounded-full text-[10px] font-black text-white ${
-                        log.status === 'ON_TIME' ? 'bg-emerald-600' : 'bg-amber-600'
+                      className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold text-white ${
+                        log.status === 'ON_TIME' ? 'bg-[#10B981]' : 'bg-[#F59E0B]'
                       }`}
                     >
                       {log.status === 'ON_TIME' ? 'ตรงเวลา' : `สาย ${log.lateMinutes} นาที`}
                     </span>
                   </div>
-                  <div className="text-slate-600 flex justify-between font-mono text-[11px]">
+                  <div className="text-stone-600 flex justify-between font-mono text-[11px]">
                     <span>เข้างาน: {new Date(log.clockInAt).toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok' })}</span>
                     <span>
                       ออกงาน:{' '}
@@ -504,7 +502,7 @@ export default function StaffClockInPage() {
                     </span>
                   </div>
                   {log.notes && (
-                    <p className="text-[10px] text-slate-600 italic bg-white p-1.5 rounded-xl border border-slate-200">
+                    <p className="text-[10px] text-stone-600 italic bg-white p-1.5 rounded-xl border border-[#E5DDD4]">
                       📌 {log.notes}
                     </p>
                   )}
@@ -517,23 +515,23 @@ export default function StaffClockInPage() {
 
       {/* SEARCHABLE EMPLOYEE MODAL */}
       {isEmpModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl p-5 max-w-md w-full shadow-2xl border border-slate-200 space-y-4 max-h-[85vh] flex flex-col animate-in fade-in zoom-in duration-150">
+        <div className="fixed inset-0 bg-stone-900/40 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+          <div className="bg-[#FCFAF7] rounded-3xl p-5 max-w-md w-full shadow-xl border border-[#EBE4D8] space-y-4 max-h-[85vh] flex flex-col animate-in fade-in zoom-in duration-150">
             {/* Modal Header */}
-            <div className="flex justify-between items-center border-b border-slate-100 pb-3 flex-shrink-0">
+            <div className="flex justify-between items-center border-b border-[#EBE4D8] pb-3 flex-shrink-0">
               <div>
-                <h3 className="font-extrabold text-base text-slate-900 flex items-center gap-1.5">
-                  <span className="text-orange-500">🔍</span>
+                <h3 className="font-extrabold text-base text-stone-900 flex items-center gap-1.5">
+                  <span className="text-[#F97316]">🔍</span>
                   <span>เลือกพนักงาน</span>
-                  <span className="text-xs bg-orange-50 text-orange-700 font-extrabold px-2.5 py-0.5 rounded-full border border-orange-200">
+                  <span className="text-xs bg-[#FCE5CD] text-[#783E10] font-bold px-2.5 py-0.5 rounded-full border border-[#F9D3AD]">
                     {employees.length} คน
                   </span>
                 </h3>
-                <p className="text-[11px] text-slate-500 font-bold">พิมพ์ชื่อ หรือแตะเลือกรายชื่อด้านล่างได้ทันที</p>
+                <p className="text-[11px] text-stone-500 font-bold">พิมพ์ชื่อ หรือแตะเลือกรายชื่อด้านล่างได้ทันที</p>
               </div>
               <button
                 onClick={() => setIsEmpModalOpen(false)}
-                className="text-slate-400 hover:text-slate-600 font-black text-lg px-2.5 py-1 rounded-xl hover:bg-slate-100 transition"
+                className="text-stone-400 hover:text-stone-600 font-bold text-lg px-2.5 py-1 rounded-2xl hover:bg-[#EFE8E2] transition"
               >
                 ✕
               </button>
@@ -547,13 +545,13 @@ export default function StaffClockInPage() {
                 value={empSearchQuery}
                 onChange={(e) => setEmpSearchQuery(e.target.value)}
                 autoFocus
-                className="w-full p-3 pl-10 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-bold text-slate-900 focus:ring-2 focus:ring-orange-500 outline-none shadow-sm"
+                className="w-full p-3 pl-10 bg-[#F5EFEA] border border-[#E5DDD4] rounded-2xl text-xs font-bold text-stone-900 focus:ring-2 focus:ring-[#F97316] outline-none shadow-xs"
               />
-              <span className="absolute left-3.5 top-3 text-orange-500 text-sm">🔍</span>
+              <span className="absolute left-3.5 top-3 text-[#F97316] text-sm">🔍</span>
               {empSearchQuery && (
                 <button
                   onClick={() => setEmpSearchQuery('')}
-                  className="absolute right-3 top-2.5 text-xs text-slate-400 hover:text-slate-600 font-bold px-1.5 py-0.5 bg-slate-200 rounded-full"
+                  className="absolute right-3 top-2.5 text-xs text-stone-400 hover:text-stone-600 font-bold px-1.5 py-0.5 bg-[#EFE8E2] rounded-full"
                 >
                   ✕
                 </button>
@@ -564,40 +562,40 @@ export default function StaffClockInPage() {
             <div className="flex gap-1.5 overflow-x-auto pb-1 flex-shrink-0 text-[11px] font-bold">
               <button
                 onClick={() => setEmpFilterType('ALL')}
-                className={`px-3 py-1.5 rounded-xl border transition ${
+                className={`px-3.5 py-2 rounded-2xl transition ${
                   empFilterType === 'ALL'
-                    ? 'bg-slate-900 text-white border-slate-900 font-black shadow'
-                    : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                    ? 'bg-[#2D2A26] text-white font-bold shadow-xs'
+                    : 'bg-[#EFE8E2] text-stone-700 hover:bg-[#E5DDD4]'
                 }`}
               >
                 ทั้งหมด ({employees.length})
               </button>
               <button
                 onClick={() => setEmpFilterType('BRANCH')}
-                className={`px-3 py-1.5 rounded-xl border transition ${
+                className={`px-3.5 py-2 rounded-2xl transition ${
                   empFilterType === 'BRANCH'
-                    ? 'bg-red-600 text-white border-red-600 font-black shadow'
-                    : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                    ? 'bg-[#F97316] text-white font-bold shadow-xs'
+                    : 'bg-[#EFE8E2] text-stone-700 hover:bg-[#E5DDD4]'
                 }`}
               >
                 🏬 เฉพาะสาขานี้ ({employees.filter((e) => e.homeBranchId === selectedBranchId).length})
               </button>
               <button
                 onClick={() => setEmpFilterType('FULL_TIME')}
-                className={`px-3 py-1.5 rounded-xl border transition ${
+                className={`px-3.5 py-2 rounded-2xl transition ${
                   empFilterType === 'FULL_TIME'
-                    ? 'bg-sky-600 text-white border-sky-600 font-black shadow'
-                    : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                    ? 'bg-[#342D69] text-white font-bold shadow-xs'
+                    : 'bg-[#EFE8E2] text-stone-700 hover:bg-[#E5DDD4]'
                 }`}
               >
                 💼 Full-Time ({employees.filter((e) => e.employmentType === 'FULL_TIME').length})
               </button>
               <button
                 onClick={() => setEmpFilterType('PART_TIME')}
-                className={`px-3 py-1.5 rounded-xl border transition ${
+                className={`px-3.5 py-2 rounded-2xl transition ${
                   empFilterType === 'PART_TIME'
-                    ? 'bg-amber-600 text-white border-amber-600 font-black shadow'
-                    : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                    ? 'bg-[#783E10] text-white font-bold shadow-xs'
+                    : 'bg-[#EFE8E2] text-stone-700 hover:bg-[#E5DDD4]'
                 }`}
               >
                 ⏳ Part-Time ({employees.filter((e) => e.employmentType === 'PART_TIME').length})
@@ -607,7 +605,7 @@ export default function StaffClockInPage() {
             {/* Filtered Employee List */}
             <div className="overflow-y-auto space-y-2 pr-1 flex-1">
               {filteredEmployees.length === 0 ? (
-                <div className="text-center py-8 text-slate-400 space-y-1">
+                <div className="text-center py-8 text-stone-400 space-y-1">
                   <p className="text-2xl">🔍</p>
                   <p className="text-xs font-bold">ไม่พบพนักงานตามคำค้นหา</p>
                 </div>
@@ -620,8 +618,8 @@ export default function StaffClockInPage() {
                       onClick={() => handleSelectEmployee(emp.id)}
                       className={`p-3 rounded-2xl border transition cursor-pointer flex items-center justify-between gap-3 ${
                         isSelected
-                          ? 'bg-red-50 border-red-400 shadow-md ring-2 ring-red-400'
-                          : 'bg-slate-50 hover:bg-slate-100 border-slate-200'
+                          ? 'bg-[#FCE5CD] border-[#F9D3AD] ring-2 ring-[#F97316] shadow-xs'
+                          : 'bg-[#F5EFEA] hover:bg-[#EFE8E2] border-[#E5DDD4]'
                       }`}
                     >
                       <div className="flex items-center gap-3 min-w-0">
@@ -629,22 +627,22 @@ export default function StaffClockInPage() {
                           <img
                             src={emp.avatarUrl}
                             alt={emp.fullName}
-                            className="w-9 h-9 rounded-full object-cover border border-slate-300 shadow-sm flex-shrink-0"
+                            className="w-9 h-9 rounded-full object-cover border border-[#E5DDD4] shadow-xs flex-shrink-0"
                           />
                         ) : (
                           <div
-                            className={`w-9 h-9 rounded-full flex items-center justify-center font-black text-sm flex-shrink-0 ${
-                              isSelected ? 'bg-red-600 text-white shadow' : 'bg-slate-200 text-slate-700'
+                            className={`w-9 h-9 rounded-full flex items-center justify-center font-bold text-sm flex-shrink-0 ${
+                              isSelected ? 'bg-[#F97316] text-white shadow-xs' : 'bg-[#EFE8E2] text-stone-700'
                             }`}
                           >
                             {emp.nickname ? emp.nickname[0] : '👤'}
                           </div>
                         )}
                         <div className="min-w-0">
-                          <p className="font-extrabold text-xs text-slate-900 truncate">
+                          <p className="font-extrabold text-xs text-stone-900 truncate">
                             {emp.fullName} ({emp.nickname || emp.role})
                           </p>
-                          <p className="text-[10px] text-slate-500 font-bold flex items-center gap-1.5 pt-0.5">
+                          <p className="text-[10px] text-stone-500 font-bold flex items-center gap-1.5 pt-0.5">
                             <span>🏬 {emp.homeBranch?.name || 'ไม่มีสาขาหลัก'}</span>
                           </p>
                         </div>
@@ -652,10 +650,10 @@ export default function StaffClockInPage() {
 
                       <div className="flex items-center gap-1.5 flex-shrink-0">
                         <span
-                          className={`text-[9px] font-black px-2 py-0.5 rounded-full ${
+                          className={`text-[9px] font-bold px-2.5 py-0.5 rounded-full ${
                             emp.employmentType === 'PART_TIME'
-                              ? 'bg-amber-100 text-amber-900 border border-amber-300'
-                              : 'bg-sky-100 text-sky-900 border border-sky-300'
+                              ? 'bg-[#FCE5CD] text-[#783E10] border border-[#F9D3AD]'
+                              : 'bg-[#E3E0F8] text-[#342D69] border border-[#C9C4F3]'
                           }`}
                         >
                           {emp.employmentType === 'PART_TIME' ? '⏳ Part-Time' : '💼 Full-Time'}
@@ -677,6 +675,132 @@ export default function StaffClockInPage() {
                 ปิดหน้าต่าง
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* GPS Unblock Guide Modal */}
+      {showGpsGuideModal && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-[#FCFAF7] border border-[#EBE4D8] rounded-3xl p-5 max-w-sm w-full shadow-xl space-y-4 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between border-b border-[#EBE4D8] pb-3">
+              <h3 className="font-extrabold text-stone-900 text-sm flex items-center gap-2">
+                <span>📍 วิธีเปิดสิทธิ์พิกัด GPS (Android / iPhone)</span>
+              </h3>
+              <button
+                onClick={() => setShowGpsGuideModal(false)}
+                className="text-stone-400 hover:text-stone-700 font-bold text-sm cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs text-stone-700">
+              <div className="bg-[#F5EFEA] p-3 rounded-2xl border border-[#E5DDD4] space-y-1.5">
+                <p className="font-bold text-stone-900 flex items-center gap-1.5">
+                  <span>📱 บน Android (Google Chrome):</span>
+                </p>
+                <ol className="list-decimal list-inside space-y-1 text-stone-600 font-medium pl-1">
+                  <li>แตะที่ไอคอน <strong>แม่กุญแจ 🔒</strong> หรือไอคอนหน้าเว็บที่แถบ URL ด้านบนสุด</li>
+                  <li>เลือก <strong>"การตั้งค่าเว็บไซต์" (Permissions / Site Settings)</strong></li>
+                  <li>เลือก <strong>"ตำแหน่งที่ตั้ง" (Location)</strong> เปลี่ยนเป็น <strong>"อนุญาต" (Allow)</strong></li>
+                  <li>รีเฟรช (Refresh) หน้าเว็บแล้วลองแตะปุ่มเช็กพิกัดอีกครั้ง</li>
+                </ol>
+              </div>
+
+              <div className="bg-[#F5EFEA] p-3 rounded-2xl border border-[#E5DDD4] space-y-1.5">
+                <p className="font-bold text-stone-900 flex items-center gap-1.5">
+                  <span>🍎 บน iPhone (Safari):</span>
+                </p>
+                <ol className="list-decimal list-inside space-y-1 text-stone-600 font-medium pl-1">
+                  <li>แตะปุ่ม <strong>aA</strong> หรือรูปแม่กุญแจที่แถบ URL ด้านบน</li>
+                  <li>เลือก <strong>"การตั้งค่าเว็บไซต์" (Website Settings)</strong></li>
+                  <li>เปลี่ยน <strong>"ตำแหน่ง" (Location)</strong> เป็น <strong>"อนุญาต" (Allow)</strong></li>
+                </ol>
+              </div>
+            </div>
+
+            <button
+              onClick={() => {
+                setShowGpsGuideModal(false);
+                window.location.reload();
+              }}
+              className="w-full py-3 bg-[#2D2A26] hover:bg-[#1E1C1A] text-white font-bold text-xs rounded-2xl transition shadow-xs cursor-pointer"
+            >
+              🔄 รีเฟรชหน้าเว็บแล้วลองใหม่
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Success Confirmation Modal */}
+      {successModalData && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-[#FCFAF7] border border-[#EBE4D8] rounded-3xl p-6 max-w-sm w-full shadow-2xl space-y-4 text-center animate-in fade-in zoom-in-95 duration-200">
+            <div className="w-16 h-16 bg-[#D8F3E5] text-[#14533C] rounded-full flex items-center justify-center text-3xl mx-auto border border-[#B6E7CE] shadow-xs">
+              ✓
+            </div>
+
+            <div>
+              <h3 className="font-black text-lg text-stone-900">
+                {successModalData.type === 'CLOCK_IN' ? '🎉 ลงเวลาเข้างานสำเร็จ!' : '🔴 ลงเวลาออกงานสำเร็จ!'}
+              </h3>
+              <p className="text-xs text-stone-500 font-bold mt-0.5">
+                ระบบได้บันทึกข้อมูลการลงเวลาเรียบร้อยแล้ว
+              </p>
+            </div>
+
+            <div className="bg-[#F5EFEA] p-4 rounded-2xl border border-[#E5DDD4] space-y-2 text-left text-xs">
+              <div className="flex justify-between items-center">
+                <span className="text-stone-500 font-bold">👤 พนักงาน:</span>
+                <span className="font-extrabold text-stone-900">
+                  {successModalData.attendance?.employee?.fullName} ({successModalData.attendance?.employee?.nickname || 'พนักงาน'})
+                </span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-stone-500 font-bold">🏪 สาขา:</span>
+                <span className="font-extrabold text-[#F97316]">
+                  {successModalData.attendance?.branch?.name}
+                </span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-stone-500 font-bold">⏰ เวลาบันทึก:</span>
+                <span className="font-extrabold text-stone-900 font-mono">
+                  {new Date(
+                    successModalData.type === 'CLOCK_IN'
+                      ? successModalData.attendance?.clockInAt
+                      : successModalData.attendance?.clockOutAt || new Date()
+                  ).toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok' })} น.
+                </span>
+              </div>
+              {successModalData.type === 'CLOCK_IN' && (
+                <div className="flex justify-between items-center pt-1 border-t border-[#E5DDD4]">
+                  <span className="text-stone-500 font-bold">📌 สถานะ:</span>
+                  <span
+                    className={`font-bold px-2.5 py-0.5 rounded-full text-[10px] ${
+                      successModalData.attendance?.status === 'ABSENT' || successModalData.attendance?.lateMinutes > 30
+                        ? 'bg-[#FCDAD7] text-[#802227]'
+                        : successModalData.attendance?.status === 'LATE' || successModalData.attendance?.lateMinutes > 15
+                        ? 'bg-[#FCE5CD] text-[#783E10]'
+                        : 'bg-[#D8F3E5] text-[#14533C]'
+                    }`}
+                  >
+                    {successModalData.attendance?.status === 'ABSENT' || successModalData.attendance?.lateMinutes > 30
+                      ? `🛑 ขาดงาน (สาย ${successModalData.attendance?.lateMinutes} นาที)`
+                      : successModalData.attendance?.status === 'LATE' || successModalData.attendance?.lateMinutes > 15
+                      ? `⚠️ สาย ${successModalData.attendance?.lateMinutes} นาที`
+                      : '🟢 ตรงเวลา'}
+                  </span>
+                </div>
+              )}
+            </div>
+
+            <button
+              onClick={() => setSuccessModalData(null)}
+              className="w-full py-3 bg-[#2D2A26] hover:bg-[#1E1C1A] text-white font-extrabold text-xs rounded-2xl transition shadow-xs cursor-pointer"
+            >
+              ตกลง (รับทราบ)
+            </button>
           </div>
         </div>
       )}

@@ -10,7 +10,7 @@ export interface DiligenceEvaluationResult {
 }
 
 export const DILIGENCE_ALLOWANCE_AMOUNT = 500.0;
-export const MAX_ALLOWED_LATE_COUNT = 2; // < 3 times means max 2 allowed
+export const MAX_ALLOWED_LATE_COUNT = 3; // Up to 3 times allowed (4th time cuts allowance)
 
 /**
  * Evaluates monthly diligence allowance qualification for an employee.
@@ -21,8 +21,12 @@ export function evaluateMonthlyDiligence(
   lateCount: number,
   leaveCount: number,
   absentCount: number,
-  employmentType?: string
+  employmentType?: string,
+  role?: string
 ): DiligenceEvaluationResult {
+  const isManager = role === 'MANAGER' || role === 'ADMIN';
+  const targetAllowance = isManager ? 1000.0 : 500.0;
+
   if (employmentType === 'PART_TIME') {
     return {
       employeeId,
@@ -62,7 +66,7 @@ export function evaluateMonthlyDiligence(
     };
   }
 
-  if (lateCount >= 3) {
+  if (lateCount >= 4) {
     return {
       employeeId,
       monthYear,
@@ -71,7 +75,7 @@ export function evaluateMonthlyDiligence(
       absentCount,
       isEligible: false,
       allowanceAmount: 0,
-      reason: `มาสาย ${lateCount} ครั้ง (เกินกำหนดน้อยกว่า 3 ครั้งต่อเดือน)`,
+      reason: `มาสาย ${lateCount} ครั้ง (อนุญาตสายได้ไม่เกิน 3 ครั้ง/เดือน)`,
     };
   }
 
@@ -82,7 +86,7 @@ export function evaluateMonthlyDiligence(
     leaveCount,
     absentCount,
     isEligible: true,
-    allowanceAmount: DILIGENCE_ALLOWANCE_AMOUNT,
-    reason: `ผ่านเกณฑ์เบี้ยขยันประจำเดือน (มาสาย ${lateCount} ครั้ง, ไม่ขาด ไม่ลา)`,
+    allowanceAmount: targetAllowance,
+    reason: `ผ่านเกณฑ์เบี้ยขยันประจำเดือน (${isManager ? 'Manager +1,000฿' : '+500฿'}, มาสาย ${lateCount} ครั้ง, ไม่ขาด ไม่ลา)`,
   };
 }

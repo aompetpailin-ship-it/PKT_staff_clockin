@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { calculateDailySalesBonus } from '@/lib/bonusEngine';
+import { sendLineUnderstaffedAlert } from '@/lib/line';
 
 export async function GET(request: Request) {
   try {
@@ -42,7 +43,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { branchId, dateStr, totalSales, recordedBy } = body;
+    const { branchId, dateStr, totalSales, recordedBy, staffCountOverride } = body;
 
     if (!branchId || !dateStr || totalSales === undefined) {
       return NextResponse.json(
@@ -64,12 +65,14 @@ export async function POST(request: Request) {
       update: {
         totalSales: salesAmount,
         recordedBy: recordedBy || 'ADMIN',
+        ...(staffCountOverride !== undefined ? { staffCountOverride: staffCountOverride !== null ? Number(staffCountOverride) : null } : {}),
       },
       create: {
         branchId,
         dateStr,
         totalSales: salesAmount,
         recordedBy: recordedBy || 'ADMIN',
+        staffCountOverride: staffCountOverride !== undefined && staffCountOverride !== null ? Number(staffCountOverride) : null,
       },
     });
 
@@ -95,7 +98,11 @@ export async function POST(request: Request) {
     const fullTimeEmployees = workingEmployees.filter(
       (emp) => emp.employmentType !== 'PART_TIME'
     );
-    const fullTimeStaffCount = fullTimeEmployees.length;
+    const autoFullTimeStaffCount = fullTimeEmployees.length;
+    const fullTimeStaffCount =
+      dailySales.staffCountOverride !== null && dailySales.staffCountOverride !== undefined
+        ? dailySales.staffCountOverride
+        : autoFullTimeStaffCount;
 
     // Calculate Bonus using Bonus Engine based strictly on Full Time staff count
     const bonusResult = calculateDailySalesBonus(salesAmount, fullTimeStaffCount);
@@ -124,6 +131,19 @@ export async function POST(request: Request) {
         });
         createdPayouts.push(payout);
       }
+    }
+
+    // Trigger LINE Alert if understaffed (actual staff less than tier threshold)
+    if (bonusResult.matchedTierReqStaff && fullTimeStaffCount < bonusResult.matchedTierReqStaff) {
+      const branchObj = await prisma.branch.findUnique({ where: { id: branchId } });
+      sendLineUnderstaffedAlert({
+        branchName: branchObj?.name || 'ไม่ทราบสาขา',
+        dateStr,
+        actualStaffCount: fullTimeStaffCount,
+        minRequiredStaff: bonusResult.matchedTierReqStaff,
+        salesAmount,
+        reason: bonusResult.reason,
+      }).catch((err) => console.error('[LINE Alert Error]', err));
     }
 
     return NextResponse.json({

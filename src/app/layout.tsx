@@ -13,13 +13,13 @@ export default function RootLayout({
 }) {
   return (
     <html lang="th">
-      <body className="min-h-screen bg-slate-100 text-slate-900 font-sans p-2 md:p-6 flex flex-col items-center">
-        {/* Main Light Mode Dashboard Container */}
-        <div className="w-full max-w-6xl bg-white rounded-3xl border border-slate-200 shadow-xl overflow-hidden flex flex-col min-h-[90vh]">
-          {/* Light Header */}
-          <header className="bg-slate-900 text-white px-4 md:px-6 py-3.5 flex justify-between items-center sticky top-0 z-50 shadow-md">
-            <Link href="/" className="flex items-center gap-3 group">
-              <div className="w-10 h-10 relative flex-shrink-0 bg-white rounded-xl p-1 shadow border border-amber-500/40 group-hover:scale-105 transition-transform duration-300">
+      <body className="min-h-screen bg-[#F8F4EE] text-stone-900 font-sans p-2 md:p-6 flex flex-col items-center">
+        {/* Warm Cream Modern Dashboard Container */}
+        <div className="w-full max-w-6xl bg-[#FCFAF7] rounded-[32px] border border-[#EBE4D8] shadow-sm overflow-hidden flex flex-col min-h-[90vh]">
+          {/* Warm Pastel Header */}
+          <header className="bg-[#FAF5EF] text-stone-900 px-3.5 sm:px-6 py-3 flex justify-between items-center sticky top-0 z-50 border-b border-[#E8E1D5] shadow-xs">
+            <Link href="/" className="flex items-center gap-2.5 group min-w-0">
+              <div className="w-9 h-9 sm:w-10 sm:h-10 relative flex-shrink-0 bg-white rounded-2xl p-1 shadow-xs border border-[#E8E1D5] group-hover:scale-105 transition-transform duration-300">
                 {/* eslint-disable-next-html-extension/no-img-element */}
                 <img
                   src="/logo.png"
@@ -27,44 +27,44 @@ export default function RootLayout({
                   className="w-full h-full object-contain"
                 />
               </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="font-black text-lg md:text-xl tracking-tight text-white group-hover:text-red-400 transition-colors">
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="font-extrabold text-base sm:text-lg tracking-tight text-stone-900 group-hover:text-[#F97316] transition-colors whitespace-nowrap">
                     ร้านผมขอทอด
                   </span>
-                  <span className="bg-red-600 text-white text-[10px] font-black px-2.5 py-0.5 rounded-full uppercase shadow">
+                  <span className="bg-[#F97316] text-white text-[9px] sm:text-[10px] font-bold px-2 py-0.5 rounded-full shadow-xs whitespace-nowrap">
                     4 สาขา
                   </span>
                 </div>
-                <p className="text-[10px] text-amber-400 font-bold tracking-wide">
-                  "ที่มันอร่อยเกินไป" • Staff Clock-In & Incentive System
+                <p className="text-[9px] sm:text-[10px] text-stone-500 font-bold tracking-wide truncate hidden sm:block">
+                  "ที่มันอร่อยเกินไป" • Staff Clock-In System
                 </p>
               </div>
             </Link>
 
-            <nav className="flex gap-2">
+            <nav className="flex items-center gap-1.5 flex-shrink-0">
               <Link
                 href="/"
-                className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs md:text-sm font-bold text-slate-100 hover:text-white transition-all duration-300 flex items-center gap-1.5 shadow"
+                className="px-2.5 sm:px-3.5 py-1.5 sm:py-2 rounded-2xl bg-[#EFE8E2] hover:bg-[#E5DDD4] text-xs font-bold text-stone-800 transition-all duration-200 flex items-center gap-1 shadow-xs whitespace-nowrap"
               >
-                <span>📱 เข้างาน (Staff)</span>
+                <span>📱 <span className="hidden sm:inline">เข้างาน </span>(Staff)</span>
               </Link>
               <Link
                 href="/admin"
-                className="px-3.5 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white font-black text-xs md:text-sm transition-all duration-300 flex items-center gap-1.5 shadow-lg shadow-red-950/40"
+                className="px-2.5 sm:px-3.5 py-1.5 sm:py-2 rounded-2xl bg-[#2D2A26] hover:bg-[#1E1C1A] text-white font-bold text-xs transition-all duration-200 flex items-center gap-1 shadow-xs whitespace-nowrap"
               >
-                <span>⚙️ ผู้จัดการ (Admin)</span>
+                <span>⚙️ Admin</span>
               </Link>
             </nav>
           </header>
 
           {/* Main Body */}
-          <main className="flex-1 p-4 md:p-6 space-y-6 bg-slate-50/60">
+          <main className="flex-1 p-4 md:p-6 space-y-6 bg-[#F8F4EE]/60">
             {children}
           </main>
 
           {/* Footer */}
-          <footer className="bg-slate-900 border-t border-slate-800 text-slate-400 py-3.5 text-center text-xs">
+          <footer className="bg-[#FAF5EF] border-t border-[#E8E1D5] text-stone-500 py-4 text-center text-xs">
             <p>© 2026 ร้านผมขอทอด "ที่มันอร่อยเกินไป" • Multi-Branch Staff Incentive Platform</p>
           </footer>
         </div>
