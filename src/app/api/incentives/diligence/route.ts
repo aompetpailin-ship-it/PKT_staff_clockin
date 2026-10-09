@@ -9,45 +9,69 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const monthYear = searchParams.get('monthYear') || new Date().toISOString().slice(0, 7); // e.g. "2026-08"
 
-    const employees = await prisma.employee.findMany({
-      include: { homeBranch: true },
-      orderBy: { fullName: 'asc' },
-    });
+    const [employees, allAttendances, allLeaves] = await Promise.all([
+      prisma.employee.findMany({
+        include: { homeBranch: true },
+        orderBy: { fullName: 'asc' },
+      }),
+      prisma.attendance.findMany({
+        where: {
+          dateStr: {
+            startsWith: monthYear,
+          },
+        },
+      }),
+      prisma.leaveRecord.findMany({
+        where: {
+          dateStr: {
+            startsWith: monthYear,
+          },
+        },
+      }),
+    ]);
 
-    const report = [];
+    const attendancesByEmp = new Map<string, any[]>();
+    for (const att of allAttendances) {
+      const list = attendancesByEmp.get(att.employeeId) || [];
+      list.push(att);
+      attendancesByEmp.set(att.employeeId, list);
+    }
+
+    const leavesByEmp = new Map<string, any[]>();
+    for (const l of allLeaves) {
+      const list = leavesByEmp.get(l.employeeId) || [];
+      list.push(l);
+      leavesByEmp.set(l.employeeId, list);
+    }
+
+    const [yearStr, monthStr] = monthYear.split('-');
+    const year = parseInt(yearStr, 10);
+    const month = parseInt(monthStr, 10);
+
+    const thaiDateNow = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
+    const [nowYear, nowMonth, nowDay] = thaiDateNow.split('-').map((v) => parseInt(v, 10));
+
+    let lastDay = new Date(year, month, 0).getDate();
+    if (year === nowYear && month === nowMonth) {
+      lastDay = Math.min(lastDay, nowDay);
+    }
+
+    // Helper function to get Monday-Sunday week key
+    const getWeekKeyStr = (dateObj: Date) => {
+      const d = new Date(dateObj.getFullYear(), dateObj.getMonth(), dateObj.getDate());
+      const day = d.getDay() === 0 ? 7 : d.getDay();
+      d.setDate(d.getDate() + 4 - day);
+      const yearStart = new Date(d.getFullYear(), 0, 1);
+      const weekNo = Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+      return `${d.getFullYear()}-W${String(weekNo).padStart(2, '0')}`;
+    };
+
+    const report: any[] = [];
+    const upsertPromises: Promise<any>[] = [];
 
     for (const emp of employees) {
-      // Find all attendances for this month (across all branches)
-      const attendances = await prisma.attendance.findMany({
-        where: {
-          employeeId: emp.id,
-          dateStr: {
-            startsWith: monthYear,
-          },
-        },
-      });
-
-      // Find all recorded leaves for this month
-      const leaves = await prisma.leaveRecord.findMany({
-        where: {
-          employeeId: emp.id,
-          dateStr: {
-            startsWith: monthYear,
-          },
-        },
-      });
-
-      const [yearStr, monthStr] = monthYear.split('-');
-      const year = parseInt(yearStr, 10);
-      const month = parseInt(monthStr, 10);
-
-      const thaiDateNow = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
-      const [nowYear, nowMonth, nowDay] = thaiDateNow.split('-').map((v) => parseInt(v, 10));
-
-      let lastDay = new Date(year, month, 0).getDate();
-      if (year === nowYear && month === nowMonth) {
-        lastDay = Math.min(lastDay, nowDay);
-      }
+      const attendances = attendancesByEmp.get(emp.id) || [];
+      const leaves = leavesByEmp.get(emp.id) || [];
 
       // Determine employee's first active working date
       const sortedLogDates = attendances.map((a) => a.dateStr).sort();
@@ -76,16 +100,6 @@ export async function GET(request: Request) {
           absentCount += 1;
         }
       }
-
-      // Helper function to get Monday-Sunday week key
-      const getWeekKeyStr = (dateObj: Date) => {
-        const d = new Date(dateObj.getFullYear(), dateObj.getMonth(), dateObj.getDate());
-        const day = d.getDay() === 0 ? 7 : d.getDay();
-        d.setDate(d.getDate() + 4 - day);
-        const yearStart = new Date(d.getFullYear(), 0, 1);
-        const weekNo = Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
-        return `${d.getFullYear()}-W${String(weekNo).padStart(2, '0')}`;
-      };
 
       const weeklyUnclockedCountMap: Record<string, number> = {};
 
@@ -131,40 +145,49 @@ export async function GET(request: Request) {
         emp.role
       );
 
-      // Save/update MonthlyDiligence record
-      const diligenceRecord = await prisma.monthlyDiligence.upsert({
-        where: {
-          employeeId_monthYear: {
-            employeeId: emp.id,
-            monthYear,
+      const diligenceData = {
+        employeeId: emp.id,
+        monthYear,
+        lateCount,
+        leaveCount,
+        absentCount,
+        isEligible: evalResult.isEligible,
+        allowanceAmount: evalResult.allowanceAmount,
+      };
+
+      // Save/update MonthlyDiligence record in parallel batch
+      upsertPromises.push(
+        prisma.monthlyDiligence.upsert({
+          where: {
+            employeeId_monthYear: {
+              employeeId: emp.id,
+              monthYear,
+            },
           },
-        },
-        update: {
-          lateCount,
-          leaveCount,
-          absentCount,
-          isEligible: evalResult.isEligible,
-          allowanceAmount: evalResult.allowanceAmount,
-          calculatedAt: new Date(),
-        },
-        create: {
-          employeeId: emp.id,
-          monthYear,
-          lateCount,
-          leaveCount,
-          absentCount,
-          isEligible: evalResult.isEligible,
-          allowanceAmount: evalResult.allowanceAmount,
-        },
-      });
+          update: {
+            lateCount,
+            leaveCount,
+            absentCount,
+            isEligible: evalResult.isEligible,
+            allowanceAmount: evalResult.allowanceAmount,
+            calculatedAt: new Date(),
+          },
+          create: diligenceData,
+        }).catch((err) => {
+          console.error(`Failed to upsert diligence for ${emp.fullName}:`, err);
+        })
+      );
 
       report.push({
         employee: emp,
-        diligence: diligenceRecord,
+        diligence: diligenceData,
         evalResult,
         leaveRecords: leaves,
       });
     }
+
+    // Wait for all upserts in parallel (non-blocking if some fail)
+    await Promise.allSettled(upsertPromises);
 
     return NextResponse.json({
       success: true,

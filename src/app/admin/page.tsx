@@ -47,6 +47,129 @@ function generateMonthsOptions(count = 12) {
   return list;
 }
 
+function computeClientDiligence(
+  employees: any[],
+  attendanceLogs: any[],
+  leaveRecords: any[],
+  selectedMonthYear: string
+) {
+  if (!employees || employees.length === 0) return [];
+  const [yearStr, monthStr] = selectedMonthYear.split('-');
+  const year = parseInt(yearStr, 10);
+  const month = parseInt(monthStr, 10);
+  const thaiDateNow = getThaiDateStr();
+  const [nowYear, nowMonth, nowDay] = thaiDateNow.split('-').map((v) => parseInt(v, 10));
+
+  let lastDay = new Date(year, month, 0).getDate();
+  if (year === nowYear && month === nowMonth) {
+    lastDay = Math.min(lastDay, nowDay);
+  }
+
+  const getWeekKeyStr = (dateObj: Date) => {
+    const d = new Date(dateObj.getFullYear(), dateObj.getMonth(), dateObj.getDate());
+    const day = d.getDay() === 0 ? 7 : d.getDay();
+    d.setDate(d.getDate() + 4 - day);
+    const yearStart = new Date(d.getFullYear(), 0, 1);
+    const weekNo = Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+    return `${d.getFullYear()}-W${String(weekNo).padStart(2, '0')}`;
+  };
+
+  return employees.map((emp) => {
+    const empLogs = attendanceLogs.filter((l) => l.employeeId === emp.id || l.employee?.id === emp.id);
+    const empLeaves = leaveRecords.filter((l) => l.employeeId === emp.id || l.employee?.id === emp.id);
+
+    const sortedLogDates = empLogs.map((l) => l.dateStr).sort();
+    const firstClockInDateStr = sortedLogDates.length > 0 ? sortedLogDates[0] : null;
+    const createdAtDateStr = emp.createdAt ? String(emp.createdAt).slice(0, 10) : null;
+    const firstActiveDateStr = firstClockInDateStr || createdAtDateStr;
+
+    const clockedInDateSet = new Set(
+      empLogs.filter((a) => a.status !== 'ABSENT' && a.status !== 'LEAVE').map((a) => a.dateStr)
+    );
+    const leavesMap = new Map<string, any>();
+    empLeaves.forEach((l) => leavesMap.set(l.dateStr, l));
+
+    let lateCount = 0;
+    let leaveCount = 0;
+    let absentCount = 0;
+
+    for (const att of empLogs) {
+      if (att.status === 'LATE') lateCount += 1;
+      else if (att.status === 'ABSENT' || (att.lateMinutes || 0) > 30) absentCount += 1;
+    }
+
+    const weeklyUnclockedCountMap: Record<string, number> = {};
+    for (let day = 1; day <= lastDay; day++) {
+      const dStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      if (firstActiveDateStr && dStr < firstActiveDateStr) continue;
+
+      if (!clockedInDateSet.has(dStr)) {
+        const dObj = new Date(dStr + 'T00:00:00');
+        const dayOfWeek = dObj.getDay();
+        const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+        const leaveItem = leavesMap.get(dStr);
+
+        if (leaveItem) {
+          if (leaveItem.leaveType === 'ABSENT') absentCount += 1;
+          else leaveCount += 1;
+        } else if (isWeekend) {
+          absentCount += 1;
+        } else {
+          const weekKey = getWeekKeyStr(dObj);
+          weeklyUnclockedCountMap[weekKey] = (weeklyUnclockedCountMap[weekKey] || 0) + 1;
+          if (weeklyUnclockedCountMap[weekKey] > 1) {
+            absentCount += 1;
+          }
+        }
+      }
+    }
+
+    const isManager = emp.role === 'MANAGER' || emp.role === 'ADMIN';
+    const targetAllowance = isManager ? 1000 : 500;
+    let isEligible = false;
+    let allowanceAmount = 0;
+    let reason = '';
+
+    if (emp.employmentType === 'PART_TIME') {
+      reason = 'พนักงาน Part-Time ไม่มีสิทธิ์รับเบี้ยขยัน (เฉพาะ Full-Time)';
+    } else if (absentCount > 0) {
+      reason = `ขาดงาน ${absentCount} วัน (ตัดสิทธิ์เบี้ยขยัน)`;
+    } else if (leaveCount > 0) {
+      reason = `มีการลางาน ${leaveCount} วัน (ตัดสิทธิ์เบี้ยขยัน)`;
+    } else if (lateCount >= 4) {
+      reason = `มาสาย ${lateCount} ครั้ง (อนุญาตสายได้ไม่เกิน 3 ครั้ง/เดือน)`;
+    } else {
+      isEligible = true;
+      allowanceAmount = targetAllowance;
+      reason = `ผ่านเกณฑ์เบี้ยขยันประจำเดือน (${isManager ? 'Manager +1,000฿' : '+500฿'}, มาสาย ${lateCount} ครั้ง, ไม่ขาด ไม่ลา)`;
+    }
+
+    return {
+      employee: emp,
+      diligence: {
+        employeeId: emp.id,
+        monthYear: selectedMonthYear,
+        lateCount,
+        leaveCount,
+        absentCount,
+        isEligible,
+        allowanceAmount,
+      },
+      evalResult: {
+        employeeId: emp.id,
+        monthYear: selectedMonthYear,
+        lateCount,
+        leaveCount,
+        absentCount,
+        isEligible,
+        allowanceAmount,
+        reason,
+      },
+      leaveRecords: empLeaves,
+    };
+  });
+}
+
 export default function AdminDashboardPage() {
   // Authentication State
   const [adminUser, setAdminUser] = useState<string | null>(null);
@@ -2156,14 +2279,20 @@ export default function AdminDashboardPage() {
 
       {/* TAB 2: DILIGENCE ALLOWANCE */}
       {activeTab === 'diligence' && (() => {
-        const filteredDiligence = diligenceReport.filter((row) => {
+        const activeDiligenceList = diligenceReport && diligenceReport.length > 0
+          ? diligenceReport
+          : computeClientDiligence(employees, attendanceLogs, leaveRecords, selectedMonthYear);
+
+        const filteredDiligence = activeDiligenceList.filter((row: any) => {
           if (selectedDiligenceBranchId === 'ALL') return true;
           return row.employee.homeBranchId === selectedDiligenceBranchId || row.employee.homeBranch?.id === selectedDiligenceBranchId;
         });
 
         const totalStaffCount = filteredDiligence.length;
-        const eligibleStaffCount = filteredDiligence.filter((r) => r.evalResult.isEligible).length;
-        const totalPayoutAmount = eligibleStaffCount * 500;
+        const eligibleStaffCount = filteredDiligence.filter((r: any) => r.evalResult?.isEligible).length;
+        const totalPayoutAmount = filteredDiligence.reduce((sum: number, r: any) => {
+          return r.evalResult?.isEligible ? sum + (r.evalResult.allowanceAmount || 500) : sum;
+        }, 0);
 
         return (
           <div className="space-y-6">
@@ -2324,6 +2453,10 @@ export default function AdminDashboardPage() {
           lastDay = Math.min(lastDay, nowDay);
         }
 
+        const activeDiligenceList = diligenceReport && diligenceReport.length > 0
+          ? diligenceReport
+          : computeClientDiligence(employees, attendanceLogs, leaveRecords, selectedMonthYear);
+
         const payrollList = employees.map((emp) => {
           // Direct bonus extraction from salesRecords (dailySales + bonusPayouts)
           const empBonusPayouts: any[] = [];
@@ -2349,7 +2482,7 @@ export default function AdminDashboardPage() {
           const bonusDetails = empBonusPayouts;
           const bonusAmount = empBonusPayouts.reduce((sum, b) => sum + (b.amount || 0), 0);
 
-          const diligenceData = diligenceReport.find((d) => d.employee.id === emp.id);
+          const diligenceData = activeDiligenceList.find((d: any) => d.employee.id === emp.id);
           let diligenceAmount = 0;
           let diligenceStatus = 'ตัดสิทธิ์ / ไม่ได้สิทธิ์';
 
