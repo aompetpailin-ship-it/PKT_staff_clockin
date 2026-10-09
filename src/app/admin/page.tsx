@@ -1216,7 +1216,7 @@ export default function AdminDashboardPage() {
       ? rawPerfFound
       : (computedFallbackPerf && computedFallbackPerf.totalShifts > 0
           ? computedFallbackPerf
-          : (rawPerfFound || computedFallbackPerf || {
+          : (rawPerfFound || computedFallbackPerf || (selectedEmpObj ? {
               employee: selectedEmpObj,
               totalShifts: 0,
               onTimeCount: 0,
@@ -1226,7 +1226,7 @@ export default function AdminDashboardPage() {
               totalBonusAmount: 0,
               bonusDetails: [],
               branchBreakdown: [],
-            }));
+            } : null)));
 
   // Executive Dashboard Overall KPIs for Selected Month
   const totalStaffCount = employees.length;
@@ -1248,10 +1248,12 @@ export default function AdminDashboardPage() {
     }
   }
 
-  const activeDiligenceForKpi = diligenceReport && diligenceReport.length > 0
+  const activeDiligenceForKpi = (diligenceReport && diligenceReport.length > 0)
     ? diligenceReport
     : computeClientDiligence(employees, attendanceLogs, leaveRecords, selectedMonthYear);
-  const eligibleDiligenceCount = activeDiligenceForKpi.filter((r: any) => r.evalResult?.isEligible).length;
+  const eligibleDiligenceCount = (activeDiligenceForKpi && Array.isArray(activeDiligenceForKpi))
+    ? activeDiligenceForKpi.filter((r: any) => r?.evalResult?.isEligible).length
+    : 0;
 
   return (
     <div className="space-y-6 pb-12">
@@ -1915,62 +1917,65 @@ export default function AdminDashboardPage() {
           </div>
 
           {/* VIEW MODE 1: EMPLOYEE FILTER */}
-          {perfFilterMode === 'EMPLOYEE' && selectedPerfItem && (
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm space-y-1">
-                  <p className="text-xs text-slate-500 font-bold">จำนวนกะเข้างานรวม</p>
-                  <p className="text-2xl font-black text-slate-900">{selectedPerfItem.totalShifts} วัน</p>
-                  <span className="text-[10px] bg-slate-100 text-slate-700 px-2 py-0.5 rounded font-medium border border-slate-200">
-                    {selectedPerfItem.employee?.employmentType === 'PART_TIME' ? 'พาร์ทไทม์' : 'ประจำ'}
-                  </span>
-                </div>
+          {perfFilterMode === 'EMPLOYEE' && (
+            selectedPerfItem && selectedPerfItem.employee ? (
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm space-y-1">
+                    <p className="text-xs text-slate-500 font-bold">จำนวนกะเข้างานรวม</p>
+                    <p className="text-2xl font-black text-slate-900">{selectedPerfItem.totalShifts} วัน</p>
+                    <span className="text-[10px] bg-slate-100 text-slate-700 px-2 py-0.5 rounded font-medium border border-slate-200">
+                      {selectedPerfItem.employee?.employmentType === 'PART_TIME' ? 'พาร์ทไทม์' : 'ประจำ'}
+                    </span>
+                  </div>
 
-                <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between gap-3">
-                  <div className="space-y-1">
-                    <p className="text-xs text-slate-500 font-bold">อัตราตรงเวลา (On-Time Rate)</p>
-                    <p className="text-2xl font-black text-sky-600">{selectedPerfItem.onTimeRate}%</p>
-                    <p className="text-[10px] text-slate-500">
-                      ตรงเวลา {selectedPerfItem.onTimeCount} วัน | สาย {selectedPerfItem.lateCount} ครั้ง
+                  <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between gap-3">
+                    <div className="space-y-1">
+                      <p className="text-xs text-slate-500 font-bold">อัตราตรงเวลา (On-Time Rate)</p>
+                      <p className="text-2xl font-black text-sky-600">{selectedPerfItem.onTimeRate}%</p>
+                      <p className="text-[10px] text-slate-500">
+                        ตรงเวลา {selectedPerfItem.onTimeCount} วัน | สาย {selectedPerfItem.lateCount} ครั้ง
+                      </p>
+                    </div>
+                    <div className="flex-shrink-0">
+                      <CircularProgress percentage={selectedPerfItem.onTimeRate} size={54} strokeWidth={5} />
+                    </div>
+                  </div>
+
+                  <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm space-y-1">
+                    <p className="text-xs text-slate-500 font-bold">โบนัสยอดขายที่ได้รับ</p>
+                    <p className="text-2xl font-black text-emerald-600">+{selectedPerfItem.totalBonusAmount.toLocaleString()} ฿</p>
+                    <p className="text-[10px] text-slate-500">ในเดือน {formatThaiMonth(selectedMonthYear)}</p>
+                  </div>
+
+                  <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm space-y-1">
+                    <p className="text-xs text-slate-500 font-bold">สาขาประจำ (Home Branch)</p>
+                    <p className="text-sm font-black text-slate-900 truncate">
+                      {selectedPerfItem.employee?.homeBranch?.name || '-'}
                     </p>
+                    <span className="text-[10px] bg-red-50 text-red-700 px-2 py-0.5 rounded font-bold border border-red-200">
+                      {selectedPerfItem.employee?.canRoam ? '⚡ หมุนเวียนสาขาได้' : 'ประจำสาขาเดียว'}
+                    </span>
                   </div>
-                  <div className="flex-shrink-0">
-                    <CircularProgress percentage={selectedPerfItem.onTimeRate} size={54} strokeWidth={5} />
-                  </div>
                 </div>
 
-                <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm space-y-1">
-                  <p className="text-xs text-slate-500 font-bold">โบนัสยอดขายที่ได้รับ</p>
-                  <p className="text-2xl font-black text-emerald-600">+{selectedPerfItem.totalBonusAmount.toLocaleString()} ฿</p>
-                  <p className="text-[10px] text-slate-500">ในเดือน {formatThaiMonth(selectedMonthYear)}</p>
-                </div>
+                {/* MONTHLY ATTENDANCE RHYTHM HEAT-STRIP */}
+                {(() => {
+                  if (!selectedPerfItem?.employee?.id) return null;
+                  const [yStr, mStr] = selectedMonthYear.split('-');
+                  const y = parseInt(yStr, 10);
+                  const m = parseInt(mStr, 10);
+                  const daysInM = new Date(y, m, 0).getDate();
+                  const todayThai = getThaiDateStr();
+                  const thaiDaysShort = ['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส'];
 
-                <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm space-y-1">
-                  <p className="text-xs text-slate-500 font-bold">สาขาประจำ (Home Branch)</p>
-                  <p className="text-sm font-black text-slate-900 truncate">
-                    {selectedPerfItem.employee?.homeBranch?.name}
-                  </p>
-                  <span className="text-[10px] bg-red-50 text-red-700 px-2 py-0.5 rounded font-bold border border-red-200">
-                    {selectedPerfItem.employee?.canRoam ? '⚡ หมุนเวียนสาขาได้' : 'ประจำสาขาเดียว'}
-                  </span>
-                </div>
-              </div>
-
-              {/* MONTHLY ATTENDANCE RHYTHM HEAT-STRIP */}
-              {(() => {
-                const [yStr, mStr] = selectedMonthYear.split('-');
-                const y = parseInt(yStr, 10);
-                const m = parseInt(mStr, 10);
-                const daysInM = new Date(y, m, 0).getDate();
-                const todayThai = getThaiDateStr();
-                const thaiDaysShort = ['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส'];
-
-                const empLogs = attendanceLogs.filter(
-                  (l) => l.employeeId === selectedPerfItem.employee.id || l.employee?.id === selectedPerfItem.employee.id
-                );
-                const empLeaves = leaveRecords.filter(
-                  (l) => l.employeeId === selectedPerfItem.employee.id || l.employee?.id === selectedPerfItem.employee.id
-                );
+                  const targetEmpId = selectedPerfItem.employee.id;
+                  const empLogs = (attendanceLogs || []).filter(
+                    (l) => l.employeeId === targetEmpId || l.employee?.id === targetEmpId
+                  );
+                  const empLeaves = (leaveRecords || []).filter(
+                    (l) => l.employeeId === targetEmpId || l.employee?.id === targetEmpId
+                  );
 
                 const logMap = new Map<string, any>();
                 empLogs.forEach((l) => logMap.set(l.dateStr, l));
@@ -2382,7 +2387,13 @@ export default function AdminDashboardPage() {
                   );
                 })()}
               </div>
-            )}
+            ) : (
+              <div className="bg-white p-8 rounded-2xl border border-slate-200 text-center text-slate-500 font-bold space-y-2">
+                <div className="text-2xl animate-spin">⏳</div>
+                <p>กำลังเตรียมข้อมูลประสิทธิภาพพนักงาน...</p>
+              </div>
+            )
+          )}
 
           {/* VIEW MODE 2: BRANCH FILTER */}
           {perfFilterMode === 'BRANCH' && (() => {
