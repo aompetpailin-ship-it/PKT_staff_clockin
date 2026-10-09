@@ -6,98 +6,112 @@ export const dynamic = 'force-dynamic';
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
-    const monthYear = searchParams.get('monthYear') || new Date().toISOString().slice(0, 7); // e.g. "2026-08"
+    const monthYear = searchParams.get('monthYear') || new Date().toISOString().slice(0, 7); // e.g. "2026-09"
     const employeeId = searchParams.get('employeeId');
 
-    const employees = await prisma.employee.findMany({
-      where: employeeId ? { id: employeeId } : {},
-      include: { homeBranch: true },
-      orderBy: { fullName: 'asc' },
-    });
+    // 1. High Performance Batch Queries (Only 3 fast parallel queries instead of N*M nested queries)
+    const [employees, allAttendances, allBonusPayouts] = await Promise.all([
+      prisma.employee.findMany({
+        where: employeeId ? { id: employeeId } : {},
+        include: { homeBranch: true },
+        orderBy: { fullName: 'asc' },
+      }),
+      prisma.attendance.findMany({
+        where: {
+          dateStr: { startsWith: monthYear },
+        },
+        include: { branch: true, employee: true },
+        orderBy: { clockInAt: 'asc' },
+      }),
+      prisma.bonusPayout.findMany({
+        where: {
+          dateStr: { startsWith: monthYear },
+        },
+        include: {
+          dailySales: { include: { branch: true } },
+          employee: true,
+        },
+        orderBy: { dateStr: 'asc' },
+      }),
+    ]);
+
+    // 2. Pre-index shift attendances by "branchId_dateStr"
+    const shiftMap = new Map<string, any[]>();
+    for (const att of allAttendances) {
+      const key = `${att.branchId}_${att.dateStr}`;
+      if (!shiftMap.has(key)) {
+        shiftMap.set(key, []);
+      }
+      shiftMap.get(key)!.push(att);
+    }
+
+    // 3. Pre-index attendances & bonus payouts by employeeId
+    const empAttMap = new Map<string, any[]>();
+    for (const att of allAttendances) {
+      if (!empAttMap.has(att.employeeId)) {
+        empAttMap.set(att.employeeId, []);
+      }
+      empAttMap.get(att.employeeId)!.push(att);
+    }
+
+    const empPayoutMap = new Map<string, any[]>();
+    for (const p of allBonusPayouts) {
+      if (!empPayoutMap.has(p.employeeId)) {
+        empPayoutMap.set(p.employeeId, []);
+      }
+      empPayoutMap.get(p.employeeId)!.push(p);
+    }
 
     const performanceReport = [];
 
     for (const emp of employees) {
-      // Find all attendance records for this month
-      const attendances = await prisma.attendance.findMany({
-        where: {
-          employeeId: emp.id,
-          dateStr: {
-            startsWith: monthYear,
-          },
-        },
-        include: { branch: true },
+      const attendances = empAttMap.get(emp.id) || [];
+      const bonusPayouts = empPayoutMap.get(emp.id) || [];
+
+      const totalBonusAmount = bonusPayouts.reduce((sum, p) => sum + (p.amount || 0), 0);
+
+      const bonusDetails = bonusPayouts.map((p) => {
+        let shiftStaffText = '';
+        let shiftStaffCount = 0;
+        let fullTimeCount = 0;
+        let partTimeCount = 0;
+        let shiftStaffList: { id: string; name: string; fullName: string; employmentType: string }[] = [];
+
+        const branchId = p.dailySales?.branchId || p.branchId;
+        if (branchId) {
+          const shiftAttendances = shiftMap.get(`${branchId}_${p.dateStr}`) || [];
+          shiftStaffCount = shiftAttendances.length;
+          shiftStaffList = shiftAttendances.map((att) => ({
+            id: att.employee.id,
+            name: att.employee.nickname || att.employee.fullName.split(' ')[0],
+            fullName: att.employee.fullName,
+            employmentType: att.employee.employmentType || 'FULL_TIME',
+          }));
+
+          fullTimeCount = shiftStaffList.filter((s) => s.employmentType !== 'PART_TIME').length;
+          partTimeCount = shiftStaffList.filter((s) => s.employmentType === 'PART_TIME').length;
+
+          const nameStrings = shiftStaffList.map((s) => s.name);
+          shiftStaffText = shiftStaffCount > 0
+            ? `👥 เข้างาน ${shiftStaffCount} คน (${nameStrings.join(', ')})`
+            : '👥 ไม่พบข้อมูลการเข้างาน';
+        }
+
+        return {
+          id: p.id,
+          dateStr: p.dateStr,
+          amount: p.amount,
+          reason: p.reason,
+          branchName: p.dailySales?.branch?.name || 'ไม่ทราบสาขา',
+          branchCode: p.dailySales?.branch?.code || 'N/A',
+          totalSales: p.dailySales?.totalSales || 0,
+          shiftStaffCount,
+          fullTimeCount,
+          partTimeCount,
+          shiftStaffList,
+          shiftStaffText,
+        };
       });
-
-      // Find all bonus payouts for this month with branch details
-      const bonusPayouts = await prisma.bonusPayout.findMany({
-        where: {
-          employeeId: emp.id,
-          dateStr: {
-            startsWith: monthYear,
-          },
-        },
-        include: {
-          dailySales: {
-            include: { branch: true },
-          },
-        },
-        orderBy: { dateStr: 'asc' },
-      });
-
-      const totalBonusAmount = bonusPayouts.reduce((sum, p) => sum + p.amount, 0);
-
-      const bonusDetails = await Promise.all(
-        bonusPayouts.map(async (p) => {
-          let shiftStaffText = '';
-          let shiftStaffCount = 0;
-          let fullTimeCount = 0;
-          let partTimeCount = 0;
-          let shiftStaffList: { id: string; name: string; fullName: string; employmentType: string }[] = [];
-
-          if (p.dailySales?.branchId) {
-            const shiftAttendances = await prisma.attendance.findMany({
-              where: {
-                dateStr: p.dateStr,
-                branchId: p.dailySales.branchId,
-              },
-              include: { employee: true },
-              orderBy: { clockInAt: 'asc' },
-            });
-
-            shiftStaffCount = shiftAttendances.length;
-            shiftStaffList = shiftAttendances.map((att) => ({
-              id: att.employee.id,
-              name: att.employee.nickname || att.employee.fullName.split(' ')[0],
-              fullName: att.employee.fullName,
-              employmentType: att.employee.employmentType || 'FULL_TIME',
-            }));
-
-            fullTimeCount = shiftStaffList.filter((s) => s.employmentType !== 'PART_TIME').length;
-            partTimeCount = shiftStaffList.filter((s) => s.employmentType === 'PART_TIME').length;
-            
-            const nameStrings = shiftStaffList.map((s) => s.name);
-            shiftStaffText = shiftStaffCount > 0
-              ? `👥 เข้างาน ${shiftStaffCount} คน (${nameStrings.join(', ')})`
-              : '👥 ไม่พบข้อมูลการเข้างาน';
-          }
-
-          return {
-            id: p.id,
-            dateStr: p.dateStr,
-            amount: p.amount,
-            reason: p.reason,
-            branchName: p.dailySales?.branch?.name || 'ไม่ทราบสาขา',
-            branchCode: p.dailySales?.branch?.code || 'N/A',
-            totalSales: p.dailySales?.totalSales || 0,
-            shiftStaffCount,
-            fullTimeCount,
-            partTimeCount,
-            shiftStaffList,
-            shiftStaffText,
-          };
-        })
-      );
 
       // Branch breakdown stats
       const branchStatsMap: Record<string, { branchId: string; branchName: string; branchCode: string; count: number }> = {};
@@ -106,7 +120,6 @@ export async function GET(request: Request) {
       let totalLateMinutes = 0;
 
       for (const att of attendances) {
-        // Count branch shifts
         const bId = att.branchId;
         if (!branchStatsMap[bId]) {
           branchStatsMap[bId] = {
@@ -122,7 +135,7 @@ export async function GET(request: Request) {
           onTimeCount += 1;
         } else if (att.status === 'LATE') {
           lateCount += 1;
-          totalLateMinutes += att.lateMinutes;
+          totalLateMinutes += (att.lateMinutes || 0);
         }
       }
 

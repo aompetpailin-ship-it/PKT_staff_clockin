@@ -131,6 +131,11 @@ export default function AdminDashboardPage() {
   const [selectedPayrollBranchId, setSelectedPayrollBranchId] = useState<string>('ALL');
   const [showBonusRuleModal, setShowBonusRuleModal] = useState<boolean>(false);
 
+  // Part-time compensation calculation state
+  const [partTimePayType, setPartTimePayType] = useState<'SHIFT' | 'HOURLY'>('SHIFT');
+  const [partTimeShiftRate, setPartTimeShiftRate] = useState<number>(400);
+  const [partTimeHourlyRate, setPartTimeHourlyRate] = useState<number>(50);
+
   // Schedule Form State per branch
   const [selectedScheduleBranchId, setSelectedScheduleBranchId] = useState<string>('');
   const [scheduleDay, setScheduleDay] = useState<number>(1);
@@ -828,6 +833,7 @@ export default function AdminDashboardPage() {
           fullName: editingEmp.fullName,
           nickname: editingEmp.nickname,
           pinCode: editingEmp.pinCode,
+          role: editingEmp.role || 'STAFF',
           employmentType: editingEmp.employmentType,
           homeBranchId: editingEmp.homeBranchId,
           canRoam: editingEmp.canRoam,
@@ -946,21 +952,90 @@ export default function AdminDashboardPage() {
   }
 
   const selectedEmpObj = employees.find((e) => e.id === selectedPerfEmpId) || employees[0];
-  const selectedPerfItem =
-    perfReport.find((p) => p.employee?.id === selectedPerfEmpId) ||
-    (selectedEmpObj
-      ? {
-          employee: selectedEmpObj,
-          totalShifts: 0,
-          onTimeCount: 0,
-          lateCount: 0,
-          totalLateMinutes: 0,
-          onTimeRate: 100,
-          totalBonusAmount: 0,
-          bonusDetails: [],
-          branchBreakdown: [],
+
+  // Real-time calculation fallback from attendanceLogs & salesRecords
+  const computedFallbackPerf = (() => {
+    if (!selectedEmpObj) return null;
+    const empLogs = attendanceLogs.filter((l) => l.employeeId === selectedEmpObj.id || l.employee?.id === selectedEmpObj.id);
+    const empBonusPayouts: any[] = [];
+    for (const ds of salesRecords) {
+      if (ds.bonusPayouts && Array.isArray(ds.bonusPayouts)) {
+        for (const bp of ds.bonusPayouts) {
+          if (bp.employeeId === selectedEmpObj.id || bp.employee?.id === selectedEmpObj.id) {
+            empBonusPayouts.push({
+              id: bp.id,
+              dateStr: ds.dateStr,
+              amount: bp.amount || 0,
+              reason: bp.reason || '',
+              branchName: ds.branch?.name || 'ไม่ทราบสาขา',
+              branchCode: ds.branch?.code || 'N/A',
+              totalSales: ds.totalSales || 0,
+            });
+          }
         }
-      : perfReport[0]);
+      }
+    }
+    const branchStatsMap: Record<string, any> = {};
+    let onTimeCount = 0;
+    let lateCount = 0;
+    let totalLateMinutes = 0;
+
+    for (const att of empLogs) {
+      const bId = att.branchId;
+      if (!branchStatsMap[bId]) {
+        branchStatsMap[bId] = {
+          branchId: bId,
+          branchName: att.branch?.name || 'ไม่ทราบสาขา',
+          branchCode: att.branch?.code || 'N/A',
+          count: 0,
+        };
+      }
+      branchStatsMap[bId].count += 1;
+      if (att.status === 'ON_TIME') {
+        onTimeCount += 1;
+      } else if (att.status === 'LATE') {
+        lateCount += 1;
+        totalLateMinutes += (att.lateMinutes || 0);
+      }
+    }
+    const totalShifts = empLogs.length;
+    const branchBreakdown = Object.values(branchStatsMap).map((b: any) => ({
+      ...b,
+      percentage: totalShifts > 0 ? Math.round((b.count / totalShifts) * 100) : 0,
+    }));
+    const onTimeRate = totalShifts > 0 ? Math.round((onTimeCount / totalShifts) * 100) : 100;
+    const totalBonusAmount = empBonusPayouts.reduce((sum, b) => sum + (b.amount || 0), 0);
+
+    return {
+      employee: selectedEmpObj,
+      totalShifts,
+      onTimeCount,
+      lateCount,
+      totalLateMinutes,
+      onTimeRate,
+      totalBonusAmount,
+      bonusDetails: empBonusPayouts,
+      branchBreakdown,
+    };
+  })();
+
+  const rawPerfFound = perfReport.find((p) => p.employee?.id === selectedPerfEmpId);
+  const selectedPerfItem =
+    rawPerfFound && rawPerfFound.totalShifts > 0
+      ? rawPerfFound
+      : (computedFallbackPerf && computedFallbackPerf.totalShifts > 0
+          ? computedFallbackPerf
+          : (rawPerfFound || computedFallbackPerf || {
+              employee: selectedEmpObj,
+              totalShifts: 0,
+              onTimeCount: 0,
+              lateCount: 0,
+              totalLateMinutes: 0,
+              onTimeRate: 100,
+              totalBonusAmount: 0,
+              bonusDetails: [],
+              branchBreakdown: [],
+            }));
 
   return (
     <div className="space-y-6 pb-12">
@@ -2615,6 +2690,239 @@ export default function AdminDashboardPage() {
                 </table>
               </div>
             </div>
+
+            {/* PART-TIME STAFF PAYROLL & HOURS SUMMARY */}
+            {(() => {
+              const ptStaffList = employees.filter(
+                (emp) => emp.employmentType === 'PART_TIME' || emp.role === 'PART_TIME'
+              );
+
+              const filteredPt = ptStaffList.filter((emp) => {
+                if (selectedPayrollBranchId === 'ALL') return true;
+                return (
+                  emp.homeBranchId === selectedPayrollBranchId ||
+                  emp.homeBranch?.id === selectedPayrollBranchId
+                );
+              });
+
+              const ptSummary = filteredPt.map((emp) => {
+                const empLogs = attendanceLogs
+                  .filter((l) => l.employeeId === emp.id || l.employee?.id === emp.id)
+                  .sort((a, b) => a.dateStr.localeCompare(b.dateStr));
+
+                let totalHours = 0;
+                const shifts = empLogs.map((l) => {
+                  let hours = 8;
+                  if (l.clockInAt && l.clockOutAt) {
+                    const diffMs = new Date(l.clockOutAt).getTime() - new Date(l.clockInAt).getTime();
+                    if (!isNaN(diffMs) && diffMs > 0) {
+                      hours = Math.round((diffMs / (1000 * 60 * 60)) * 10) / 10;
+                    }
+                  }
+                  totalHours += hours;
+                  return {
+                    id: l.id,
+                    dateStr: l.dateStr,
+                    branchName: l.branch?.name || 'N/A',
+                    branchCode: l.branch?.code || 'N/A',
+                    clockInAt: l.clockInAt ? new Date(l.clockInAt).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }) : '-',
+                    clockOutAt: l.clockOutAt ? new Date(l.clockOutAt).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }) : 'ยังไม่ลงออก',
+                    hours,
+                    status: l.status,
+                  };
+                });
+
+                const shiftsCount = empLogs.length;
+                const totalPay =
+                  partTimePayType === 'SHIFT'
+                    ? shiftsCount * partTimeShiftRate
+                    : Math.round(totalHours * partTimeHourlyRate);
+
+                return {
+                  employee: emp,
+                  homeBranchName: emp.homeBranch?.name || '-',
+                  shiftsCount,
+                  totalHours: Math.round(totalHours * 10) / 10,
+                  totalPay,
+                  shifts,
+                };
+              });
+
+              const totalPtShiftsAll = ptSummary.reduce((sum, p) => sum + p.shiftsCount, 0);
+              const totalPtHoursAll = ptSummary.reduce((sum, p) => sum + p.totalHours, 0);
+              const grandTotalPtPay = ptSummary.reduce((sum, p) => sum + p.totalPay, 0);
+
+              return (
+                <div className="bg-[#FCFAF7] p-5 rounded-3xl border border-[#EBE4D8] shadow-xs space-y-4">
+                  <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                    <div>
+                      <h3 className="font-extrabold text-base text-stone-900 flex items-center gap-2">
+                        <span>⏳ สรุปการทำงาน & สรุปยอดจ่ายพนักงานพาร์ทไทม์ (Part-Time Staff)</span>
+                        <span className="bg-amber-100 text-amber-900 border border-amber-300 text-xs font-bold px-2.5 py-0.5 rounded-full">
+                          {ptSummary.length} คน
+                        </span>
+                      </h3>
+                      <p className="text-xs text-stone-500 mt-0.5">
+                        คำนวณตามจำนวนกะและชั่วโมงเข้างานจริง เพื่อทำจ่ายค่าจ้างพาร์ทไทม์ตอนสิ้นเดือนได้สะดวกรวดเร็ว
+                      </p>
+                    </div>
+
+                    {/* INTERACTIVE RATE CONTROLS */}
+                    <div className="flex items-center gap-3 flex-wrap bg-white p-2 rounded-2xl border border-[#E5DDD4] shadow-xs text-xs">
+                      <span className="font-bold text-stone-700">⚙️ รูปแบบคำนวณ:</span>
+                      <div className="flex items-center gap-1 bg-stone-100 p-1 rounded-xl">
+                        <button
+                          type="button"
+                          onClick={() => setPartTimePayType('SHIFT')}
+                          className={`px-3 py-1 rounded-lg font-bold transition cursor-pointer ${
+                            partTimePayType === 'SHIFT'
+                              ? 'bg-[#2D2A26] text-white shadow-xs'
+                              : 'text-stone-600 hover:text-stone-900'
+                          }`}
+                        >
+                          🏷️ จ่ายตามกะ (บาท/กะ)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setPartTimePayType('HOURLY')}
+                          className={`px-3 py-1 rounded-lg font-bold transition cursor-pointer ${
+                            partTimePayType === 'HOURLY'
+                              ? 'bg-[#2D2A26] text-white shadow-xs'
+                              : 'text-stone-600 hover:text-stone-900'
+                          }`}
+                        >
+                          ⏱️ จ่ายตามชั่วโมง (บาท/ชม.)
+                        </button>
+                      </div>
+
+                      {partTimePayType === 'SHIFT' ? (
+                        <div className="flex items-center gap-1.5">
+                          <label className="font-semibold text-stone-600">อัตราต่อกะ:</label>
+                          <input
+                            type="number"
+                            min="0"
+                            step="10"
+                            value={partTimeShiftRate}
+                            onChange={(e) => setPartTimeShiftRate(Number(e.target.value) || 0)}
+                            className="w-20 p-1 bg-stone-50 border border-stone-300 rounded-lg text-center font-bold text-amber-900"
+                          />
+                          <span className="font-bold text-stone-600">฿</span>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-1.5">
+                          <label className="font-semibold text-stone-600">อัตราต่อชั่วโมง:</label>
+                          <input
+                            type="number"
+                            min="0"
+                            step="5"
+                            value={partTimeHourlyRate}
+                            onChange={(e) => setPartTimeHourlyRate(Number(e.target.value) || 0)}
+                            className="w-20 p-1 bg-stone-50 border border-stone-300 rounded-lg text-center font-bold text-amber-900"
+                          />
+                          <span className="font-bold text-stone-600">฿</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* PART TIME STAT CARDS */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t border-[#EBE4D8]">
+                    <div className="bg-amber-50 p-3.5 rounded-2xl border border-amber-200 space-y-1">
+                      <p className="text-[11px] font-bold text-amber-800">📅 กะทำงานพาร์ทไทม์รวม</p>
+                      <p className="text-xl font-black text-amber-950">{totalPtShiftsAll} กะ</p>
+                    </div>
+                    <div className="bg-sky-50 p-3.5 rounded-2xl border border-sky-200 space-y-1">
+                      <p className="text-[11px] font-bold text-sky-800">⏱️ ชั่วโมงทำงานจริงรวม</p>
+                      <p className="text-xl font-black text-sky-950">{Math.round(totalPtHoursAll * 10) / 10} ชั่วโมง</p>
+                    </div>
+                    <div className="bg-[#2D2A26] text-white p-3.5 rounded-2xl shadow-xs space-y-1">
+                      <p className="text-[11px] font-bold text-stone-300">💰 ยอดค่าจ้างพาร์ทไทม์รวมที่ต้องจ่าย</p>
+                      <p className="text-xl font-black text-amber-400">+{grandTotalPtPay.toLocaleString()} ฿</p>
+                    </div>
+                  </div>
+
+                  {/* PART TIME TABLE */}
+                  <div className="overflow-x-auto rounded-2xl border border-[#EBE4D8]">
+                    <table className="w-full text-left text-xs border-collapse">
+                      <thead>
+                        <tr className="bg-[#F5EFEA] text-stone-800 font-bold border-b border-[#EBE4D8]">
+                          <th className="p-3">ชื่อ-นามสกุล (พนักงานพาร์ทไทม์)</th>
+                          <th className="p-3">สาขาประจำ</th>
+                          <th className="p-3 text-center">จำนวนกะที่เข้างาน</th>
+                          <th className="p-3 text-center">ชั่วโมงทำงานรวม</th>
+                          <th className="p-3 text-right">เรทค่าจ้างที่ใช้คิด</th>
+                          <th className="p-3 text-right">ยอดค่าจ้างสุทธิ</th>
+                          <th className="p-3">รายละเอียดกะเข้างานในเดือน</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-[#EBE4D8] bg-white">
+                        {ptSummary.length === 0 ? (
+                          <tr>
+                            <td colSpan={7} className="p-4 text-center text-stone-400 italic">
+                              ไม่พบพนักงานพาร์ทไทม์ในสาขาและเดือนที่เลือก (สามารถเพิ่มตำแหน่งพาร์ทไทม์ได้ที่แท็บ "รายชื่อพนักงาน")
+                            </td>
+                          </tr>
+                        ) : (
+                          ptSummary.map((pt) => (
+                            <tr key={pt.employee.id} className="hover:bg-[#FAF5EF] transition-colors">
+                              <td className="p-3 font-bold text-stone-900">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-base">⏳</span>
+                                  <div>
+                                    <div className="font-extrabold text-stone-900">
+                                      {pt.employee.fullName} ({pt.employee.nickname || 'พาร์ทไทม์'})
+                                    </div>
+                                    <span className="text-[10px] text-stone-400 font-mono">
+                                      {pt.employee.phone || pt.employee.lineUserId}
+                                    </span>
+                                  </div>
+                                </div>
+                              </td>
+                              <td className="p-3 text-stone-600 font-semibold">{pt.homeBranchName}</td>
+                              <td className="p-3 text-center font-bold text-amber-900">
+                                <span className="bg-amber-100 text-amber-900 border border-amber-300 px-2.5 py-1 rounded-full text-xs font-black">
+                                  {pt.shiftsCount} กะ
+                                </span>
+                              </td>
+                              <td className="p-3 text-center font-mono font-bold text-sky-900">
+                                {pt.totalHours} ชม.
+                              </td>
+                              <td className="p-3 text-right font-mono text-stone-600">
+                                {partTimePayType === 'SHIFT'
+                                  ? `${partTimeShiftRate.toLocaleString()} ฿/กะ`
+                                  : `${partTimeHourlyRate.toLocaleString()} ฿/ชม.`}
+                              </td>
+                              <td className="p-3 text-right font-mono font-black text-sm text-emerald-700 bg-emerald-50/50">
+                                +{pt.totalPay.toLocaleString()} ฿
+                              </td>
+                              <td className="p-3">
+                                {pt.shifts.length === 0 ? (
+                                  <span className="text-stone-400 italic text-[11px]">ไม่มีประวัติเข้างานในเดือนนี้</span>
+                                ) : (
+                                  <div className="flex flex-wrap gap-1 max-w-sm">
+                                    {pt.shifts.map((s: any) => (
+                                      <span
+                                        key={s.id}
+                                        className="bg-stone-50 border border-stone-200 text-stone-800 text-[10px] font-semibold px-2 py-0.5 rounded-lg flex items-center gap-1"
+                                        title={`${s.dateStr} สาขา ${s.branchName} (${s.clockInAt} - ${s.clockOutAt}) = ${s.hours} ชม.`}
+                                      >
+                                        <span className="font-bold text-amber-900">{s.dateStr.slice(8)}/{s.dateStr.slice(5, 7)}</span>
+                                        <span className="text-stone-500 font-normal">({s.branchCode})</span>
+                                        <span className="font-mono text-emerald-700 font-bold">{s.hours}h</span>
+                                      </span>
+                                    ))}
+                                  </div>
+                                )}
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         );
       })()}
@@ -3205,7 +3513,7 @@ export default function AdminDashboardPage() {
                 <thead>
                   <tr className="bg-slate-100 text-slate-700 font-bold border-b border-slate-200">
                     <th className="p-2.5">ชื่อ-นามสกุล</th>
-                    <th className="p-2.5">ประเภทจ้างงาน</th>
+                    <th className="p-2.5">ตำแหน่ง & ประเภทจ้างงาน</th>
                     <th className="p-2.5">รหัส PIN ประจำตัว</th>
                     <th className="p-2.5">สาขาประจำ</th>
                     <th className="p-2.5">สถานะการผูกเครื่อง</th>
@@ -3235,15 +3543,30 @@ export default function AdminDashboardPage() {
                         </div>
                       </td>
                       <td className="p-2.5 font-bold">
-                        <span
-                          className={`px-2 py-0.5 rounded text-[10px] ${
-                            emp.employmentType === 'PART_TIME'
-                              ? 'bg-amber-100 text-amber-900 border border-amber-300'
-                              : 'bg-sky-100 text-sky-900 border border-sky-300'
-                          }`}
-                        >
-                          {emp.employmentType === 'PART_TIME' ? '⏳ Part-Time' : '💼 Full-Time'}
-                        </span>
+                        <div className="flex flex-col gap-1 items-start">
+                          {emp.role === 'MANAGER' ? (
+                            <span className="px-2 py-0.5 rounded text-[10px] bg-purple-100 text-purple-900 border border-purple-300 font-extrabold">
+                              👔 ผู้จัดการร้าน (Manager)
+                            </span>
+                          ) : emp.role === 'PART_TIME' ? (
+                            <span className="px-2 py-0.5 rounded text-[10px] bg-amber-100 text-amber-900 border border-amber-300 font-extrabold">
+                              ⏳ พนักงานพาร์ทไทม์
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 rounded text-[10px] bg-slate-100 text-slate-800 border border-slate-300 font-extrabold">
+                              👨‍🍳 พนักงานหน้าร้าน
+                            </span>
+                          )}
+                          <span
+                            className={`px-2 py-0.5 rounded text-[9px] ${
+                              emp.employmentType === 'PART_TIME'
+                                ? 'bg-amber-50 text-amber-800 border border-amber-200 font-bold'
+                                : 'bg-sky-50 text-sky-800 border border-sky-200 font-bold'
+                            }`}
+                          >
+                            {emp.employmentType === 'PART_TIME' ? '⏳ Part-Time' : '💼 Full-Time'}
+                          </span>
+                        </div>
                       </td>
                       <td className="p-2.5 font-bold font-mono">
                         <span className="bg-slate-100 border border-slate-300 px-2.5 py-1 rounded-lg text-red-600 font-black text-xs">
@@ -3339,6 +3662,25 @@ export default function AdminDashboardPage() {
                   className="w-full p-2.5 bg-slate-50 border border-slate-300 font-mono text-red-600 font-black rounded-xl"
                   required
                 />
+              </div>
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">ตำแหน่ง (Role):</label>
+                <select
+                  value={newEmployee.role}
+                  onChange={(e) => {
+                    const r = e.target.value;
+                    setNewEmployee({
+                      ...newEmployee,
+                      role: r,
+                      employmentType: r === 'PART_TIME' ? 'PART_TIME' : newEmployee.employmentType,
+                    });
+                  }}
+                  className="w-full p-2.5 bg-slate-50 border border-slate-300 text-slate-900 rounded-xl font-bold"
+                >
+                  <option value="STAFF">👨‍🍳 พนักงานหน้าร้าน (Staff)</option>
+                  <option value="MANAGER">👔 ผู้จัดการร้าน (Store Manager)</option>
+                  <option value="PART_TIME">⏳ พนักงานพาร์ทไทม์ (Part-Time)</option>
+                </select>
               </div>
               <div>
                 <label className="block font-bold text-slate-700 mb-1">ประเภทการจ้างงาน:</label>
@@ -3458,7 +3800,27 @@ export default function AdminDashboardPage() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">ตำแหน่ง (Role):</label>
+                  <select
+                    value={editingEmp.role || 'STAFF'}
+                    onChange={(e) => {
+                      const r = e.target.value;
+                      setEditingEmp({
+                        ...editingEmp,
+                        role: r,
+                        employmentType: r === 'PART_TIME' ? 'PART_TIME' : editingEmp.employmentType,
+                      });
+                    }}
+                    className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl font-bold text-slate-900"
+                  >
+                    <option value="STAFF">👨‍🍳 พนักงานหน้าร้าน</option>
+                    <option value="MANAGER">👔 ผู้จัดการร้าน (Manager)</option>
+                    <option value="PART_TIME">⏳ พนักงานพาร์ทไทม์</option>
+                  </select>
+                </div>
+
                 <div>
                   <label className="block font-bold text-slate-700 mb-1">ประเภทจ้างงาน:</label>
                   <select
