@@ -170,6 +170,44 @@ function computeClientDiligence(
   });
 }
 
+function CircularProgress({ percentage, size = 56, strokeWidth = 5 }: { percentage: number; size?: number; strokeWidth?: number }) {
+  const radius = (size - strokeWidth) / 2;
+  const circumference = 2 * Math.PI * radius;
+  const validPercent = Math.min(100, Math.max(0, isNaN(percentage) ? 0 : percentage));
+  const strokeDashoffset = circumference - (validPercent / 100) * circumference;
+  const color = validPercent >= 90 ? '#10B981' : validPercent >= 80 ? '#F59E0B' : '#EF4444';
+
+  return (
+    <div className="relative flex items-center justify-center flex-shrink-0" style={{ width: size, height: size }}>
+      <svg className="transform -rotate-90" width={size} height={size}>
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          stroke="#EAE4DC"
+          strokeWidth={strokeWidth}
+          fill="transparent"
+        />
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          stroke={color}
+          strokeWidth={strokeWidth}
+          strokeDasharray={circumference}
+          strokeDashoffset={strokeDashoffset}
+          strokeLinecap="round"
+          fill="transparent"
+          className="transition-all duration-700 ease-out"
+        />
+      </svg>
+      <span className="absolute font-black text-xs" style={{ color }}>
+        {validPercent}%
+      </span>
+    </div>
+  );
+}
+
 export default function AdminDashboardPage() {
   // Authentication State
   const [adminUser, setAdminUser] = useState<string | null>(null);
@@ -258,6 +296,36 @@ export default function AdminDashboardPage() {
   const [partTimePayType, setPartTimePayType] = useState<'SHIFT' | 'HOURLY'>('SHIFT');
   const [partTimeShiftRate, setPartTimeShiftRate] = useState<number>(400);
   const [partTimeHourlyRate, setPartTimeHourlyRate] = useState<number>(50);
+
+  // Global Quick Search & Filter State
+  const [globalSearchTerm, setGlobalSearchTerm] = useState<string>('');
+
+  // Export to CSV Function
+  const exportPayrollToCsv = (payrollData: any[], monthStr: string) => {
+    if (!payrollData || payrollData.length === 0) {
+      alert('ไม่มีข้อมูลสำหรับส่งออก');
+      return;
+    }
+    const headers = ['ชื่อ-นามสกุล', 'ชื่อเล่น', 'สาขาประจำ', 'ประเภทจ้างงาน', 'โบนัสยอดขาย (บาท)', 'เบี้ยขยัน (บาท)', 'หักหยุดเสาร์อาทิตย์ (บาท)', 'ยอดจ่ายสุทธิ (บาท)'];
+    const rows = payrollData.map((r) => [
+      `"${r.employee.fullName}"`,
+      `"${r.employee.nickname || ''}"`,
+      `"${r.homeBranchName}"`,
+      `"${r.employee.employmentType === 'PART_TIME' ? 'Part-Time' : 'Full-Time'}"`,
+      r.bonusAmount,
+      r.diligenceAmount,
+      r.totalWeekendDeduction,
+      r.totalNetPay,
+    ]);
+    const csvContent = 'data:text/csv;charset=utf-8,\uFEFF' + [headers.join(','), ...rows.map((e) => e.join(','))].join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', `PKT_Payroll_Summary_${monthStr}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
 
   // Schedule Form State per branch
   const [selectedScheduleBranchId, setSelectedScheduleBranchId] = useState<string>('');
@@ -1160,6 +1228,31 @@ export default function AdminDashboardPage() {
               branchBreakdown: [],
             }));
 
+  // Executive Dashboard Overall KPIs for Selected Month
+  const totalStaffCount = employees.length;
+  const fullTimeCount = employees.filter((e) => e.employmentType !== 'PART_TIME' && e.role !== 'PART_TIME').length;
+  const partTimeCount = totalStaffCount - fullTimeCount;
+
+  const totalShiftsInMonth = attendanceLogs.length;
+  const onTimeShiftsInMonth = attendanceLogs.filter((l) => l.status === 'ON_TIME').length;
+  const overallOnTimeRate = totalShiftsInMonth > 0 ? Math.round((onTimeShiftsInMonth / totalShiftsInMonth) * 100) : 100;
+
+  const totalSalesInMonth = salesRecords.reduce((sum, s) => sum + (s.totalSales || 0), 0);
+
+  let totalBonusInMonth = 0;
+  for (const s of salesRecords) {
+    if (s.bonusPayouts && Array.isArray(s.bonusPayouts)) {
+      for (const bp of s.bonusPayouts) {
+        totalBonusInMonth += (bp.amount || 0);
+      }
+    }
+  }
+
+  const activeDiligenceForKpi = diligenceReport && diligenceReport.length > 0
+    ? diligenceReport
+    : computeClientDiligence(employees, attendanceLogs, leaveRecords, selectedMonthYear);
+  const eligibleDiligenceCount = activeDiligenceForKpi.filter((r: any) => r.evalResult?.isEligible).length;
+
   return (
     <div className="space-y-6 pb-12">
       {/* Warm Cream Admin Header */}
@@ -1219,6 +1312,191 @@ export default function AdminDashboardPage() {
         </div>
       </div>
 
+      {/* EXECUTIVE INTERACTIVE KPI CARDS */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+        {/* KPI 1: STAFF */}
+        <div
+          onClick={() => setActiveTab('employees')}
+          className={`p-3.5 rounded-3xl border transition-all duration-200 hover:-translate-y-1 hover:shadow-md cursor-pointer flex flex-col justify-between ${
+            activeTab === 'employees'
+              ? 'bg-purple-50/80 border-purple-300 shadow-xs ring-2 ring-purple-400/40'
+              : 'bg-[#FCFAF7] border-[#EBE4D8] hover:border-purple-200'
+          }`}
+        >
+          <div className="flex items-center justify-between text-xs font-bold text-stone-600 mb-1">
+            <span>👥 พนักงานทั้งหมด</span>
+            <span className="text-purple-600 text-base">↗</span>
+          </div>
+          <div>
+            <div className="text-2xl font-black text-stone-900 tracking-tight">{totalStaffCount} <span className="text-xs font-semibold text-stone-500">คน</span></div>
+            <div className="text-[10px] text-stone-500 font-semibold mt-0.5">
+              ประจำ {fullTimeCount} • พาร์ทไทม์ {partTimeCount}
+            </div>
+          </div>
+        </div>
+
+        {/* KPI 2: BRANCHES */}
+        <div
+          onClick={() => setActiveTab('branches')}
+          className={`p-3.5 rounded-3xl border transition-all duration-200 hover:-translate-y-1 hover:shadow-md cursor-pointer flex flex-col justify-between ${
+            activeTab === 'branches'
+              ? 'bg-sky-50/80 border-sky-300 shadow-xs ring-2 ring-sky-400/40'
+              : 'bg-[#FCFAF7] border-[#EBE4D8] hover:border-sky-200'
+          }`}
+        >
+          <div className="flex items-center justify-between text-xs font-bold text-stone-600 mb-1">
+            <span>🏬 สาขาทำการ</span>
+            <span className="text-sky-600 text-base">↗</span>
+          </div>
+          <div>
+            <div className="text-2xl font-black text-sky-900 tracking-tight">{branches.length} <span className="text-xs font-semibold text-stone-500">สาขา</span></div>
+            <div className="text-[10px] text-stone-500 font-semibold mt-0.5 truncate">
+              B1, B2, B3, B4 (GPS On)
+            </div>
+          </div>
+        </div>
+
+        {/* KPI 3: ON-TIME RATE */}
+        <div
+          onClick={() => setActiveTab('performance')}
+          className={`p-3.5 rounded-3xl border transition-all duration-200 hover:-translate-y-1 hover:shadow-md cursor-pointer flex items-center justify-between ${
+            activeTab === 'performance'
+              ? 'bg-emerald-50/80 border-emerald-300 shadow-xs ring-2 ring-emerald-400/40'
+              : 'bg-[#FCFAF7] border-[#EBE4D8] hover:border-emerald-200'
+          }`}
+        >
+          <div className="flex-1 min-w-0 pr-2">
+            <div className="text-xs font-bold text-stone-600 truncate mb-1">⏱️ ตรงเวลาเฉลี่ย</div>
+            <div className="text-2xl font-black text-emerald-800 tracking-tight">{overallOnTimeRate}%</div>
+            <div className="text-[10px] text-stone-500 font-semibold truncate mt-0.5">
+              ตรง {onTimeShiftsInMonth}/{totalShiftsInMonth} กะ
+            </div>
+          </div>
+          <CircularProgress percentage={overallOnTimeRate} size={48} strokeWidth={5} />
+        </div>
+
+        {/* KPI 4: MONTH SALES */}
+        <div
+          onClick={() => setActiveTab('bonus')}
+          className={`p-3.5 rounded-3xl border transition-all duration-200 hover:-translate-y-1 hover:shadow-md cursor-pointer flex flex-col justify-between ${
+            activeTab === 'bonus'
+              ? 'bg-amber-50/80 border-amber-300 shadow-xs ring-2 ring-amber-400/40'
+              : 'bg-[#FCFAF7] border-[#EBE4D8] hover:border-amber-200'
+          }`}
+        >
+          <div className="flex items-center justify-between text-xs font-bold text-stone-600 mb-1">
+            <span>💰 ยอดขายรวม</span>
+            <span className="text-amber-600 text-base">↗</span>
+          </div>
+          <div>
+            <div className="text-xl font-black text-amber-950 tracking-tight">฿{totalSalesInMonth.toLocaleString()}</div>
+            <div className="text-[10px] text-stone-500 font-semibold mt-0.5">
+              บันทึกแล้ว {salesRecords.length} วัน
+            </div>
+          </div>
+        </div>
+
+        {/* KPI 5: BONUS PAID */}
+        <div
+          onClick={() => setActiveTab('payroll')}
+          className={`p-3.5 rounded-3xl border transition-all duration-200 hover:-translate-y-1 hover:shadow-md cursor-pointer flex flex-col justify-between ${
+            activeTab === 'payroll'
+              ? 'bg-emerald-50/80 border-emerald-300 shadow-xs ring-2 ring-emerald-400/40'
+              : 'bg-[#FCFAF7] border-[#EBE4D8] hover:border-emerald-200'
+          }`}
+        >
+          <div className="flex items-center justify-between text-xs font-bold text-stone-600 mb-1">
+            <span>🎁 โบนัสยอดขาย</span>
+            <span className="text-emerald-600 text-base">↗</span>
+          </div>
+          <div>
+            <div className="text-xl font-black text-emerald-700 tracking-tight">+{totalBonusInMonth.toLocaleString()} ฿</div>
+            <div className="text-[10px] text-stone-500 font-semibold mt-0.5">
+              ยอดจ่ายพิเศษสะสม
+            </div>
+          </div>
+        </div>
+
+        {/* KPI 6: DILIGENCE ELIGIBILITY */}
+        <div
+          onClick={() => setActiveTab('diligence')}
+          className={`p-3.5 rounded-3xl border transition-all duration-200 hover:-translate-y-1 hover:shadow-md cursor-pointer flex flex-col justify-between ${
+            activeTab === 'diligence'
+              ? 'bg-orange-50/80 border-orange-300 shadow-xs ring-2 ring-orange-400/40'
+              : 'bg-[#FCFAF7] border-[#EBE4D8] hover:border-orange-200'
+          }`}
+        >
+          <div className="flex items-center justify-between text-xs font-bold text-stone-600 mb-1">
+            <span>🏆 เบี้ยขยัน</span>
+            <span className="text-orange-600 text-base">↗</span>
+          </div>
+          <div>
+            <div className="text-2xl font-black text-stone-900 tracking-tight">{eligibleDiligenceCount} <span className="text-xs font-semibold text-stone-500">คนผ่าน</span></div>
+            <div className="text-[10px] text-emerald-700 font-bold mt-0.5">
+              +{(eligibleDiligenceCount * 500).toLocaleString()} ฿ (เป้าหมาย)
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* LIVE QUICK SEARCH & ACTION BAR */}
+      <div className="bg-[#FCFAF7] p-3 rounded-2xl border border-[#EBE4D8] shadow-xs flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
+        <div className="relative flex-1 max-w-md">
+          <span className="absolute inset-y-0 left-3 flex items-center text-stone-400 pointer-events-none text-sm">
+            🔍
+          </span>
+          <input
+            type="text"
+            placeholder="ค้นหาพนักงาน (พิมพ์ชื่อ, ชื่อเล่น, รหัส, สาขา)..."
+            value={globalSearchTerm}
+            onChange={(e) => setGlobalSearchTerm(e.target.value)}
+            className="w-full pl-9 pr-8 py-2 bg-white border border-[#E5DDD4] rounded-xl text-xs font-bold text-stone-800 placeholder-stone-400 focus:ring-2 focus:ring-[#F97316] outline-none shadow-xs"
+          />
+          {globalSearchTerm && (
+            <button
+              onClick={() => setGlobalSearchTerm('')}
+              className="absolute inset-y-0 right-2.5 flex items-center text-stone-400 hover:text-stone-700 font-bold text-xs"
+            >
+              ✕
+            </button>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            onClick={() => {
+              fetchAttendanceLogs(selectedMonthYear);
+              fetchSalesRecords(selectedMonthYear);
+              fetchDiligenceReport(selectedMonthYear);
+              fetchPerformanceReport(selectedMonthYear);
+            }}
+            className="px-3 py-2 bg-white hover:bg-stone-50 border border-[#E5DDD4] rounded-xl text-xs font-bold text-stone-700 transition flex items-center gap-1.5 shadow-xs cursor-pointer active:scale-95"
+            title="รีเฟรชข้อมูลล่าสุดจากฐานข้อมูล"
+          >
+            <span>🔄</span>
+            <span>ซิงค์ข้อมูล</span>
+          </button>
+
+          <button
+            onClick={handleRunMorningAudit}
+            disabled={isAuditingMorning}
+            className="px-3 py-2 bg-white hover:bg-red-50 border border-red-200 text-red-700 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-xs cursor-pointer active:scale-95 disabled:opacity-50"
+            title="ตรวจสอบพนักงานเข้างานกะเช้า (ตัดรอบ 09:30 น.)"
+          >
+            <span>🚨</span>
+            <span>{isAuditingMorning ? 'กำลังตรวจ...' : 'ตรวจกะเช้า'}</span>
+          </button>
+
+          <button
+            onClick={() => setShowBonusRuleModal(true)}
+            className="px-3 py-2 bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-900 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-xs cursor-pointer active:scale-95"
+          >
+            <span>🎯</span>
+            <span>เกณฑ์โบนัส</span>
+          </button>
+        </div>
+      </div>
+
       {/* Sidebar + Main Content Grid Container */}
       <div className="grid grid-cols-1 md:grid-cols-[260px_1fr] lg:grid-cols-[280px_1fr] gap-6 items-start">
         
@@ -1231,98 +1509,154 @@ export default function AdminDashboardPage() {
 
           <button
             onClick={() => setActiveTab('performance')}
-            className={`w-full text-left py-3 px-3.5 rounded-2xl transition flex items-center gap-2.5 font-bold text-xs md:text-sm ${
+            className={`w-full text-left py-3 px-3.5 rounded-2xl transition flex items-center justify-between gap-2.5 font-bold text-xs md:text-sm ${
               activeTab === 'performance'
                 ? 'bg-[#2D2A26] text-white shadow-xs'
                 : 'text-stone-700 hover:bg-[#F5EFEA] hover:text-stone-900'
             }`}
           >
-            <span className="text-base">📈</span>
-            <span>ประสิทธิภาพพนักงาน & Chart</span>
+            <div className="flex items-center gap-2 truncate">
+              <span className="text-base">📈</span>
+              <span className="truncate">ประสิทธิภาพ & Chart</span>
+            </div>
+            <span className={`text-[10px] px-2 py-0.5 rounded-full font-black flex-shrink-0 ${
+              activeTab === 'performance' ? 'bg-emerald-400 text-stone-950' : 'bg-emerald-100 text-emerald-800'
+            }`}>
+              {overallOnTimeRate}%
+            </span>
           </button>
 
           <button
             onClick={() => setActiveTab('leaves')}
-            className={`w-full text-left py-3 px-3.5 rounded-2xl transition flex items-center gap-2.5 font-bold text-xs md:text-sm ${
+            className={`w-full text-left py-3 px-3.5 rounded-2xl transition flex items-center justify-between gap-2.5 font-bold text-xs md:text-sm ${
               activeTab === 'leaves'
                 ? 'bg-[#2D2A26] text-white shadow-xs'
                 : 'text-stone-700 hover:bg-[#F5EFEA] hover:text-stone-900'
             }`}
           >
-            <span className="text-base">📝</span>
-            <span>บันทึกการลางาน</span>
+            <div className="flex items-center gap-2 truncate">
+              <span className="text-base">📝</span>
+              <span className="truncate">บันทึกการลางาน</span>
+            </div>
+            <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold flex-shrink-0 ${
+              activeTab === 'leaves' ? 'bg-stone-700 text-stone-200' : 'bg-stone-200 text-stone-700'
+            }`}>
+              {leaveRecords.length}
+            </span>
           </button>
 
           <button
             onClick={() => setActiveTab('bonus')}
-            className={`w-full text-left py-3 px-3.5 rounded-2xl transition flex items-center gap-2.5 font-bold text-xs md:text-sm ${
+            className={`w-full text-left py-3 px-3.5 rounded-2xl transition flex items-center justify-between gap-2.5 font-bold text-xs md:text-sm ${
               activeTab === 'bonus'
                 ? 'bg-[#2D2A26] text-white shadow-xs'
                 : 'text-stone-700 hover:bg-[#F5EFEA] hover:text-stone-900'
             }`}
           >
-            <span className="text-base">💰</span>
-            <span>บันทึกยอดขาย & CSV Import</span>
+            <div className="flex items-center gap-2 truncate">
+              <span className="text-base">💰</span>
+              <span className="truncate">ยอดขาย & CSV Import</span>
+            </div>
+            <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold flex-shrink-0 ${
+              activeTab === 'bonus' ? 'bg-amber-400 text-stone-950' : 'bg-amber-100 text-amber-900'
+            }`}>
+              {salesRecords.length} วัน
+            </span>
           </button>
 
           <button
             onClick={() => setActiveTab('diligence')}
-            className={`w-full text-left py-3 px-3.5 rounded-2xl transition flex items-center gap-2.5 font-bold text-xs md:text-sm ${
+            className={`w-full text-left py-3 px-3.5 rounded-2xl transition flex items-center justify-between gap-2.5 font-bold text-xs md:text-sm ${
               activeTab === 'diligence'
                 ? 'bg-[#2D2A26] text-white shadow-xs'
                 : 'text-stone-700 hover:bg-[#F5EFEA] hover:text-stone-900'
             }`}
           >
-            <span className="text-base">🏆</span>
-            <span>เบี้ยขยันประจำเดือน</span>
+            <div className="flex items-center gap-2 truncate">
+              <span className="text-base">🏆</span>
+              <span className="truncate">เบี้ยขยันประจำเดือน</span>
+            </div>
+            <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold flex-shrink-0 ${
+              activeTab === 'diligence' ? 'bg-emerald-400 text-stone-950' : 'bg-emerald-100 text-emerald-800'
+            }`}>
+              {eligibleDiligenceCount} คน
+            </span>
           </button>
 
           <button
             onClick={() => setActiveTab('payroll')}
-            className={`w-full text-left py-3 px-3.5 rounded-2xl transition flex items-center gap-2.5 font-bold text-xs md:text-sm ${
+            className={`w-full text-left py-3 px-3.5 rounded-2xl transition flex items-center justify-between gap-2.5 font-bold text-xs md:text-sm ${
               activeTab === 'payroll'
                 ? 'bg-[#2D2A26] text-white shadow-xs font-extrabold'
                 : 'text-stone-700 hover:bg-[#F5EFEA] hover:text-stone-900'
             }`}
           >
-            <span className="text-base">💵</span>
-            <span>สรุปยอดจ่ายรวม (โบนัส+เบี้ยขยัน)</span>
+            <div className="flex items-center gap-2 truncate">
+              <span className="text-base">💵</span>
+              <span className="truncate">สรุปยอดจ่ายรวม</span>
+            </div>
+            <span className={`text-[10px] px-2 py-0.5 rounded-full font-black flex-shrink-0 ${
+              activeTab === 'payroll' ? 'bg-emerald-400 text-stone-950' : 'bg-emerald-100 text-emerald-800'
+            }`}>
+              +{(totalBonusInMonth / 1000).toFixed(1)}k
+            </span>
           </button>
 
           <button
             onClick={() => setActiveTab('logs')}
-            className={`w-full text-left py-3 px-3.5 rounded-2xl transition flex items-center gap-2.5 font-bold text-xs md:text-sm ${
+            className={`w-full text-left py-3 px-3.5 rounded-2xl transition flex items-center justify-between gap-2.5 font-bold text-xs md:text-sm ${
               activeTab === 'logs'
                 ? 'bg-[#2D2A26] text-white shadow-xs'
                 : 'text-stone-700 hover:bg-[#F5EFEA] hover:text-stone-900'
             }`}
           >
-            <span className="text-base">📋</span>
-            <span>ประวัติลงเวลาเข้างาน</span>
+            <div className="flex items-center gap-2 truncate">
+              <span className="text-base">📋</span>
+              <span className="truncate">ประวัติลงเวลาเข้างาน</span>
+            </div>
+            <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold flex-shrink-0 ${
+              activeTab === 'logs' ? 'bg-stone-700 text-stone-200' : 'bg-stone-200 text-stone-700'
+            }`}>
+              {attendanceLogs.length}
+            </span>
           </button>
 
           <button
             onClick={() => setActiveTab('branches')}
-            className={`w-full text-left py-3 px-3.5 rounded-2xl transition flex items-center gap-2.5 font-bold text-xs md:text-sm ${
+            className={`w-full text-left py-3 px-3.5 rounded-2xl transition flex items-center justify-between gap-2.5 font-bold text-xs md:text-sm ${
               activeTab === 'branches'
                 ? 'bg-[#2D2A26] text-white shadow-xs'
                 : 'text-stone-700 hover:bg-[#F5EFEA] hover:text-stone-900'
             }`}
           >
-            <span className="text-base">🏪</span>
-            <span>4 สาขา & ล็อกพิกัด GPS</span>
+            <div className="flex items-center gap-2 truncate">
+              <span className="text-base">🏪</span>
+              <span className="truncate">4 สาขา & ล็อกพิกัด GPS</span>
+            </div>
+            <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold flex-shrink-0 ${
+              activeTab === 'branches' ? 'bg-sky-400 text-stone-950' : 'bg-sky-100 text-sky-800'
+            }`}>
+              {branches.length}
+            </span>
           </button>
 
           <button
             onClick={() => setActiveTab('employees')}
-            className={`w-full text-left py-3 px-3.5 rounded-2xl transition flex items-center gap-2.5 font-bold text-xs md:text-sm ${
+            className={`w-full text-left py-3 px-3.5 rounded-2xl transition flex items-center justify-between gap-2.5 font-bold text-xs md:text-sm ${
               activeTab === 'employees'
                 ? 'bg-[#2D2A26] text-white shadow-xs'
                 : 'text-stone-700 hover:bg-[#F5EFEA] hover:text-stone-900'
             }`}
           >
-            <span className="text-base">👥</span>
-            <span>จัดการพนักงาน & กำหนด PIN</span>
+            <div className="flex items-center gap-2 truncate">
+              <span className="text-base">👥</span>
+              <span className="truncate">รายชื่อพนักงาน & PIN</span>
+            </div>
+            <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold flex-shrink-0 ${
+              activeTab === 'employees' ? 'bg-purple-400 text-stone-950' : 'bg-purple-100 text-purple-800'
+            }`}>
+              {employees.length}
+            </span>
           </button>
         </div>
 
@@ -1592,12 +1926,17 @@ export default function AdminDashboardPage() {
                   </span>
                 </div>
 
-                <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm space-y-1">
-                  <p className="text-xs text-slate-500 font-bold">อัตราตรงเวลา (On-Time Rate)</p>
-                  <p className="text-2xl font-black text-sky-600">{selectedPerfItem.onTimeRate}%</p>
-                  <p className="text-[10px] text-slate-500">
-                    ตรงเวลา {selectedPerfItem.onTimeCount} วัน | สาย {selectedPerfItem.lateCount} ครั้ง
-                  </p>
+                <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between gap-3">
+                  <div className="space-y-1">
+                    <p className="text-xs text-slate-500 font-bold">อัตราตรงเวลา (On-Time Rate)</p>
+                    <p className="text-2xl font-black text-sky-600">{selectedPerfItem.onTimeRate}%</p>
+                    <p className="text-[10px] text-slate-500">
+                      ตรงเวลา {selectedPerfItem.onTimeCount} วัน | สาย {selectedPerfItem.lateCount} ครั้ง
+                    </p>
+                  </div>
+                  <div className="flex-shrink-0">
+                    <CircularProgress percentage={selectedPerfItem.onTimeRate} size={54} strokeWidth={5} />
+                  </div>
                 </div>
 
                 <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm space-y-1">
@@ -1616,6 +1955,169 @@ export default function AdminDashboardPage() {
                   </span>
                 </div>
               </div>
+
+              {/* MONTHLY ATTENDANCE RHYTHM HEAT-STRIP */}
+              {(() => {
+                const [yStr, mStr] = selectedMonthYear.split('-');
+                const y = parseInt(yStr, 10);
+                const m = parseInt(mStr, 10);
+                const daysInM = new Date(y, m, 0).getDate();
+                const todayThai = getThaiDateStr();
+                const thaiDaysShort = ['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส'];
+
+                const empLogs = attendanceLogs.filter(
+                  (l) => l.employeeId === selectedPerfItem.employee.id || l.employee?.id === selectedPerfItem.employee.id
+                );
+                const empLeaves = leaveRecords.filter(
+                  (l) => l.employeeId === selectedPerfItem.employee.id || l.employee?.id === selectedPerfItem.employee.id
+                );
+
+                const logMap = new Map<string, any>();
+                empLogs.forEach((l) => logMap.set(l.dateStr, l));
+
+                const leaveMap = new Map<string, any>();
+                empLeaves.forEach((l) => leaveMap.set(l.dateStr, l));
+
+                const daysList = [];
+                for (let d = 1; d <= daysInM; d++) {
+                  const dStr = `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+                  const dayObj = new Date(dStr + 'T00:00:00');
+                  const dow = dayObj.getDay();
+                  const isWknd = dow === 0 || dow === 6;
+                  const isFuture = dStr > todayThai;
+                  const att = logMap.get(dStr);
+                  const leave = leaveMap.get(dStr);
+
+                  daysList.push({
+                    day: d,
+                    dateStr: dStr,
+                    dayOfWeek: dow,
+                    dayName: thaiDaysShort[dow],
+                    isWeekend: isWknd,
+                    isFuture,
+                    attendance: att,
+                    leave,
+                  });
+                }
+
+                const totalOnTime = daysList.filter((d) => d.attendance?.status === 'ON_TIME').length;
+                const totalLate = daysList.filter((d) => d.attendance?.status === 'LATE').length;
+                const totalLeave = daysList.filter((d) => !d.attendance && d.leave).length;
+                const totalOff = daysList.filter((d) => !d.isFuture && !d.attendance && !d.leave).length;
+
+                return (
+                  <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-3">
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
+                      <div>
+                        <h4 className="font-black text-sm text-slate-900 flex items-center gap-1.5">
+                          <span>📅 ปฏิทินจังหวะเวลาเข้างาน (Monthly Attendance Rhythm Matrix)</span>
+                        </h4>
+                        <p className="text-[11px] text-slate-500 mt-0.5">
+                          ภาพรวมความสม่ำเสมอในแต่ละวันของ {selectedPerfItem.employee?.fullName} ({formatThaiMonth(selectedMonthYear)})
+                        </p>
+                      </div>
+
+                      <div className="flex items-center gap-3 text-[11px] font-bold flex-wrap">
+                        <span className="flex items-center gap-1 text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-lg border border-emerald-200">
+                          <span className="w-2 h-2 rounded-full bg-emerald-500"></span> ตรงเวลา ({totalOnTime})
+                        </span>
+                        <span className="flex items-center gap-1 text-amber-700 bg-amber-50 px-2 py-0.5 rounded-lg border border-amber-200">
+                          <span className="w-2 h-2 rounded-full bg-amber-500"></span> สาย ({totalLate})
+                        </span>
+                        <span className="flex items-center gap-1 text-purple-700 bg-purple-50 px-2 py-0.5 rounded-lg border border-purple-200">
+                          <span className="w-2 h-2 rounded-full bg-purple-500"></span> ลา ({totalLeave})
+                        </span>
+                        <span className="flex items-center gap-1 text-stone-600 bg-stone-100 px-2 py-0.5 rounded-lg border border-stone-200">
+                          <span className="w-2 h-2 rounded-full bg-stone-300"></span> หยุด/ไม่ได้ลง ({totalOff})
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* INTERACTIVE DAY TILES GRID */}
+                    <div className="grid grid-cols-7 sm:grid-cols-10 md:grid-cols-14 lg:grid-cols-16 gap-1.5 pt-1">
+                      {daysList.map((item) => {
+                        let bgClass = 'bg-stone-50 border-stone-200 text-stone-600 hover:border-stone-400';
+                        let badgeColor = 'bg-stone-200 text-stone-600';
+                        let statusText = 'วันหยุด / ไม่ได้ลงเวลา';
+                        let detailNote = '';
+
+                        if (item.isFuture) {
+                          bgClass = 'bg-stone-50/50 border-dashed border-stone-200 text-stone-300 opacity-60';
+                          badgeColor = 'bg-stone-100 text-stone-400';
+                          statusText = 'ยังไม่ถึงวัน';
+                        } else if (item.attendance) {
+                          const branchCode = item.attendance.branch?.code || 'สาขา';
+                          const timeStr = item.attendance.timestamp
+                            ? new Date(item.attendance.timestamp).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })
+                            : '';
+                          if (item.attendance.status === 'ON_TIME') {
+                            bgClass = 'bg-emerald-50 border-emerald-300 text-emerald-900 shadow-xs hover:bg-emerald-100 hover:border-emerald-400';
+                            badgeColor = 'bg-emerald-600 text-white';
+                            statusText = `ตรงเวลา (${timeStr} น.)`;
+                            detailNote = `เข้างาน ${timeStr} น. ที่ ${item.attendance.branch?.name || branchCode}`;
+                          } else if (item.attendance.status === 'LATE') {
+                            bgClass = 'bg-amber-50 border-amber-300 text-amber-900 shadow-xs hover:bg-amber-100 hover:border-amber-400';
+                            badgeColor = 'bg-amber-500 text-white';
+                            statusText = `สาย +${item.attendance.lateMinutes || 0} น.`;
+                            detailNote = `เข้างาน ${timeStr} น. (สาย ${item.attendance.lateMinutes || 0} น.) ที่ ${item.attendance.branch?.name || branchCode}`;
+                          }
+                        } else if (item.leave) {
+                          bgClass = 'bg-purple-50 border-purple-300 text-purple-900 shadow-xs hover:bg-purple-100 hover:border-purple-400';
+                          badgeColor = 'bg-purple-500 text-white';
+                          statusText = `ลางาน (${item.leave.reason || 'แจ้งลา'})`;
+                          detailNote = `ประเภท: ${item.leave.leaveType || 'ลางาน'} - ${item.leave.reason || ''}`;
+                        } else if (item.isWeekend) {
+                          bgClass = 'bg-rose-50/70 border-rose-200 text-rose-800 hover:bg-rose-100';
+                          badgeColor = 'bg-rose-200 text-rose-800';
+                          statusText = 'วันเสาร์-อาทิตย์';
+                          detailNote = 'ไม่ได้ลงเวลาทำงานในวันหยุด ส.-อา.';
+                        }
+
+                        return (
+                          <div
+                            key={item.dateStr}
+                            title={`วันที่ ${item.day} (${item.dayName}): ${statusText}${detailNote ? ' - ' + detailNote : ''}`}
+                            className={`p-2 rounded-xl border text-center transition flex flex-col items-center justify-between cursor-pointer min-h-[58px] ${bgClass}`}
+                          >
+                            <div className="flex items-center justify-between w-full text-[10px] font-extrabold leading-tight">
+                              <span className={item.isWeekend ? 'text-rose-600' : 'text-slate-500'}>
+                                {item.dayName}
+                              </span>
+                              <span className="font-black text-slate-800">{item.day}</span>
+                            </div>
+
+                            <div className="my-0.5">
+                              {item.attendance ? (
+                                <span className={`text-[9px] px-1 py-0.2 rounded font-black ${badgeColor}`}>
+                                  {item.attendance.branch?.code || 'เข้า'}
+                                </span>
+                              ) : item.leave ? (
+                                <span className="text-[9px] px-1 py-0.2 rounded font-black bg-purple-600 text-white">
+                                  ลา
+                                </span>
+                              ) : item.isFuture ? (
+                                <span className="text-[9px] text-stone-300 font-bold">-</span>
+                              ) : item.isWeekend ? (
+                                <span className="text-[8px] text-rose-500 font-bold">ส-อา</span>
+                              ) : (
+                                <span className="text-[8px] text-stone-400 font-bold">หยุด</span>
+                              )}
+                            </div>
+
+                            <div className="text-[8px] font-bold truncate max-w-full">
+                              {item.attendance?.status === 'LATE' ? (
+                                <span className="text-amber-600 font-black">+{item.attendance.lateMinutes}น.</span>
+                              ) : item.attendance?.status === 'ON_TIME' ? (
+                                <span className="text-emerald-600 font-black">✓ ทัน</span>
+                              ) : null}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })()}
 
               <div className="space-y-2">
                 <h3 className="font-black text-sm text-slate-900 flex items-center gap-2">
@@ -2592,11 +3094,21 @@ export default function AdminDashboardPage() {
         });
 
         const filteredPayroll = payrollList.filter((row) => {
-          if (selectedPayrollBranchId === 'ALL') return true;
-          return (
-            row.employee.homeBranchId === selectedPayrollBranchId ||
-            row.employee.homeBranch?.id === selectedPayrollBranchId
-          );
+          if (selectedPayrollBranchId !== 'ALL') {
+            const matchesBranch = (
+              row.employee.homeBranchId === selectedPayrollBranchId ||
+              row.employee.homeBranch?.id === selectedPayrollBranchId
+            );
+            if (!matchesBranch) return false;
+          }
+          if (globalSearchTerm && globalSearchTerm.trim()) {
+            const q = globalSearchTerm.trim().toLowerCase();
+            const matchName = row.employee.fullName?.toLowerCase().includes(q);
+            const matchNick = row.employee.nickname?.toLowerCase().includes(q);
+            const matchBranch = row.employee.homeBranch?.name?.toLowerCase().includes(q);
+            if (!matchName && !matchNick && !matchBranch) return false;
+          }
+          return true;
         });
 
         const totalBonusAll = filteredPayroll.reduce((sum, r) => sum + r.bonusAmount, 0);
@@ -2659,6 +3171,15 @@ export default function AdminDashboardPage() {
                   >
                     <span>ℹ️</span>
                     <span>เกณฑ์เงื่อนไขโบนัส</span>
+                  </button>
+
+                  <button
+                    onClick={() => exportPayrollToCsv(filteredPayroll, selectedMonthYear)}
+                    className="p-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl text-xs font-black shadow-sm transition flex items-center gap-1.5 cursor-pointer active:scale-95"
+                    title="ดาวน์โหลดไฟล์สำหรับนำเข้า Excel หรือส่งฝ่ายบัญชี"
+                  >
+                    <span>📥</span>
+                    <span>ส่งออก Excel / CSV ({filteredPayroll.length})</span>
                   </button>
                 </div>
               </div>
