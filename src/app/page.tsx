@@ -219,7 +219,7 @@ export default function StaffClockInPage() {
       return;
     }
     if (!pinCodeInput) {
-      setAlertMsg({ type: 'error', text: 'กรุณากรอกรหัส PIN ประจำตัวพนักงาน 4 หลัก' });
+      setAlertMsg({ type: 'error', text: 'กรุณากรอกรหัส PIN ประจำตัวพนักงาน (4 - 6 หลัก)' });
       return;
     }
 
@@ -435,18 +435,18 @@ export default function StaffClockInPage() {
         <div className="space-y-2 pt-1 border-t border-[#EBE4D8]">
           <div className="p-3.5 bg-[#F5EFEA] border border-[#E5DDD4] rounded-2xl space-y-2">
             <label className="block text-xs font-bold text-stone-800 flex items-center gap-1">
-              <span>🔑 กรอกรหัส PIN ประจำตัวพนักงาน (4 หลัก):</span>
+              <span>🔑 กรอกรหัส PIN ประจำตัวพนักงาน (4 - 6 หลัก):</span>
             </label>
             <input
               type="password"
               maxLength={6}
-              placeholder="••••"
+              placeholder="กรอกรหัส PIN 4-6 หลัก"
               value={pinCodeInput}
               onChange={(e) => setPinCodeInput(e.target.value)}
               className="w-full p-3 bg-white border border-[#E5DDD4] text-stone-900 rounded-2xl font-mono text-center font-bold text-lg tracking-widest focus:ring-2 focus:ring-[#F97316] outline-none shadow-xs"
             />
             <p className="text-[11px] text-stone-500 text-center font-bold">
-              🛡️ ล็อกเครื่อง: โทรศัพท์ 1 เครื่องใช้ลงเวลาเฉพาะพนักงานเจ้าของเครื่องเท่านั้น
+              🔐 ยืนยันตัวตนด้วยรหัส PIN ประจำตัวพนักงาน (หากจำรหัสไม่ได้กรุณาติดต่อผู้จัดการ)
             </p>
           </div>
         </div>

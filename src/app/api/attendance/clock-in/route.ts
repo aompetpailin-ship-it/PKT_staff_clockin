@@ -51,7 +51,32 @@ export async function POST(request: Request) {
       );
     }
 
-    // ANTI-PROXY DEVICE BINDING SECURITY (ป้องกันการใช้เครื่องเดียวกันกดแทนกัน)
+    // 1. Verification Checks (PIN / Photo)
+    if (verificationMethod === 'PIN_CODE') {
+      if (!pinCode) {
+        return NextResponse.json(
+          { success: false, error: 'กรุณากรอกรหัส PIN ประจำตัวพนักงาน (4-6 หลัก)' },
+          { status: 400 }
+        );
+      }
+      const expectedPin = employee.pinCode || '1234';
+      if (pinCode.trim() !== expectedPin.trim()) {
+        return NextResponse.json(
+          { success: false, error: 'รหัส PIN ยืนยันตัวตนไม่ถูกต้อง (กรุณาตรวจสอบรหัส PIN 4-6 หลักของท่าน หรือสอบถามผู้จัดการ)' },
+          { status: 401 }
+        );
+      }
+    } else if (verificationMethod === 'PHOTO_SELFIE') {
+      if (!photoUrl) {
+        return NextResponse.json(
+          { success: false, error: 'กรุณาถ่ายรูป Selfie เพื่อยืนยันตัวตน หรือเลือกลงเวลาด้วยรหัส PIN' },
+          { status: 400 }
+        );
+      }
+    }
+
+    // 2. DEVICE BINDING & SHARED DEVICE DETECTION (ยืดหยุ่น ไม่บล็อกคนเปิดผ่าน Safari/LINE แต่ตรวจจับและแจ้งเตือนกรณีใช้เครื่องร่วมกัน)
+    let sharedDeviceOwnerName = '';
     if (deviceId) {
       if (!employee.boundDeviceId) {
         // First time clock-in: bind this phone device to employee
@@ -62,44 +87,27 @@ export async function POST(request: Request) {
           })
           .catch((err) => console.error('[Device Binding Error]', err));
       } else if (employee.boundDeviceId !== deviceId) {
-        // Device mismatch! Phone belongs to someone else!
-        const deviceOwner = await prisma.employee.findFirst({
-          where: { boundDeviceId: deviceId },
+        // Check if this device is registered to another employee
+        const otherOwner = await prisma.employee.findFirst({
+          where: {
+            boundDeviceId: deviceId,
+            id: { not: employee.id },
+          },
         });
 
-        const ownerName = deviceOwner ? `${deviceOwner.fullName} (${deviceOwner.nickname || 'พนักงาน'})` : 'พนักงานคนอื่น';
-
-        return NextResponse.json(
-          {
-            success: false,
-            error: `⛔ ป้องกันการกดลงเวลาแทนกัน: โทรศัพท์เครื่องนี้ถูกผูกไว้กับ ${ownerName} ไม่สามารถใช้กดลงเวลาแทนกันได้ (หากเปลี่ยนเครื่องโทรศัพท์จริง กรุณาติดต่อผู้จัดการเพื่อปลดล็อกเครื่อง)`,
-          },
-          { status: 403 }
-        );
-      }
-    }
-
-    // Verification Checks
-    if (verificationMethod === 'PIN_CODE') {
-      if (!pinCode) {
-        return NextResponse.json(
-          { success: false, error: 'กรุณากรอกรหัส PIN ประจำตัว 4 หลัก' },
-          { status: 400 }
-        );
-      }
-      const expectedPin = employee.pinCode || '1234';
-      if (pinCode.trim() !== expectedPin.trim()) {
-        return NextResponse.json(
-          { success: false, error: 'รหัส PIN ยืนยันตัวตนไม่ถูกต้อง (รหัสเริ่มต้นของพนักงาน: 1234)' },
-          { status: 401 }
-        );
-      }
-    } else if (verificationMethod === 'PHOTO_SELFIE') {
-      if (!photoUrl) {
-        return NextResponse.json(
-          { success: false, error: 'กรุณาถ่ายรูป Selfie เพื่อยืนยันตัวตน หรือเลือกลงเวลาด้วยรหัส PIN' },
-          { status: 400 }
-        );
+        if (otherOwner) {
+          sharedDeviceOwnerName = `${otherOwner.fullName} (${otherOwner.nickname || 'พนักงาน'})`;
+          console.log(`[Shared Device] ${employee.fullName} clocked in using device of ${sharedDeviceOwnerName}`);
+        } else {
+          // Device is not bound to anyone else (e.g. employee cleared browser cache, opened in Safari, or got new phone)
+          // Smoothly update bound device to new device without blocking
+          prisma.employee
+            .update({
+              where: { id: employee.id },
+              data: { boundDeviceId: deviceId },
+            })
+            .catch((err) => console.error('[Device Re-bind Error]', err));
+        }
       }
     }
 
@@ -205,7 +213,9 @@ export async function POST(request: Request) {
         distanceMeters: geofenceResult.distanceMeters,
         lateMinutes,
         status,
-        notes: notes || null,
+        notes: sharedDeviceOwnerName
+          ? (notes ? `${notes} | ใช้เครื่องเดียวกับ ${sharedDeviceOwnerName}` : `ใช้เครื่องเดียวกับ ${sharedDeviceOwnerName}`)
+          : notes || null,
       },
       include: {
         employee: true,
@@ -215,9 +225,12 @@ export async function POST(request: Request) {
 
     const thaiFormattedTime = now.toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok' });
 
-    // Option 1 Quota Saver: Send LINE Notification ONLY for IMPORTANT alerts (Late / Absent)
-    if (status === 'LATE' || status === 'ABSENT' || lateMinutes > 15) {
-      const lineMsg = `🚨 [ร้านผมขอทอด] แจ้งเตือนเข้างานผิดปกติ!\n👤 พนักงาน: ${employee.fullName} (${employee.nickname || 'พนักงาน'})\n🏪 สาขา: ${branch.name}\n⏰ เวลา: ${thaiFormattedTime} น.\n📌 สถานะ: ${statusLabel}\n🔐 วิธียืนยัน: ${methodLabel}`;
+    // Option 1 Quota Saver: Send LINE Notification for Late / Absent OR Shared Device usage
+    if (status === 'LATE' || status === 'ABSENT' || lateMinutes > 15 || sharedDeviceOwnerName) {
+      let lineMsg = `🚨 [ร้านผมขอทอด] แจ้งเตือนเข้างาน!\n👤 พนักงาน: ${employee.fullName} (${employee.nickname || 'พนักงาน'})\n🏪 สาขา: ${branch.name}\n⏰ เวลา: ${thaiFormattedTime} น.\n📌 สถานะ: ${statusLabel}\n🔐 วิธียืนยัน: ${methodLabel}`;
+      if (sharedDeviceOwnerName) {
+        lineMsg += `\n📱 หมายเหตุ: ใช้เครื่องเดียวกับ ${sharedDeviceOwnerName} (ยืนยัน PIN ถูกต้อง)`;
+      }
       sendLineGroupNotification(lineMsg, photoUrl && photoUrl.startsWith('http') ? photoUrl : undefined).catch((err: any) => console.error(err));
     }
 
