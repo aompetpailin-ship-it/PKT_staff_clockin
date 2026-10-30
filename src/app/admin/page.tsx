@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import BranchPieChart from '@/components/BranchPieChart';
 import { getThaiDateStr, getThaiMonthYearStr } from '@/lib/dateUtils';
 
@@ -48,19 +48,24 @@ function generateMonthsOptions(count = 12) {
 }
 
 function computeClientDiligence(
-  employees: any[],
-  attendanceLogs: any[],
-  leaveRecords: any[],
-  selectedMonthYear: string
+  employees: any[] = [],
+  attendanceLogs: any[] = [],
+  leaveRecords: any[] = [],
+  selectedMonthYear: string = ''
 ) {
-  if (!employees || employees.length === 0) return [];
+  if (!Array.isArray(employees) || employees.length === 0) return [];
+  if (!selectedMonthYear || !selectedMonthYear.includes('-')) return [];
   const [yearStr, monthStr] = selectedMonthYear.split('-');
   const year = parseInt(yearStr, 10);
   const month = parseInt(monthStr, 10);
   const thaiDateNow = getThaiDateStr();
 
+  const safeLogs = Array.isArray(attendanceLogs) ? attendanceLogs.filter(Boolean) : [];
+  const safeLeaves = Array.isArray(leaveRecords) ? leaveRecords.filter(Boolean) : [];
+
   // Helper function to get Monday-Sunday ISO week key
   const getWeekKeyStr = (dateObj: Date) => {
+    if (!dateObj || isNaN(dateObj.getTime())) return 'UNKNOWN';
     const d = new Date(Date.UTC(dateObj.getFullYear(), dateObj.getMonth(), dateObj.getDate()));
     const day = d.getUTCDay() === 0 ? 7 : d.getUTCDay();
     d.setUTCDate(d.getUTCDate() + 4 - day);
@@ -69,9 +74,9 @@ function computeClientDiligence(
     return `${d.getUTCFullYear()}-W${String(weekNo).padStart(2, '0')}`;
   };
 
-  return employees.map((emp) => {
-    const empLogs = attendanceLogs.filter((l) => l.employeeId === emp.id || l.employee?.id === emp.id);
-    const empLeaves = leaveRecords.filter((l) => l.employeeId === emp.id || l.employee?.id === emp.id);
+  return employees.filter(Boolean).map((emp) => {
+    const empLogs = safeLogs.filter((l) => l && (l.employeeId === emp.id || l.employee?.id === emp.id));
+    const empLeaves = safeLeaves.filter((l) => l && (l.employeeId === emp.id || l.employee?.id === emp.id));
 
     const sortedLogDates = empLogs.map((l) => l.dateStr).sort();
     const firstClockInDateStr = sortedLogDates.length > 0 ? sortedLogDates[0] : null;
@@ -211,7 +216,51 @@ function CircularProgress({ percentage, size = 56, strokeWidth = 5 }: { percenta
   );
 }
 
-export default function AdminDashboardPage() {
+class AdminErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean; error: Error | null }> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    console.error('Admin Dashboard Client Render Exception:', error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="max-w-2xl mx-auto my-12 p-8 bg-white border border-red-200 rounded-3xl shadow-xl space-y-4 text-center">
+          <div className="text-4xl">⚠️</div>
+          <h2 className="text-lg font-black text-slate-900">ตรวจพบข้อผิดพลาดชั่วคราวในการแสดงผลหน้า Admin</h2>
+          <p className="text-xs text-red-600 font-mono bg-red-50 p-3 rounded-xl border border-red-200 text-left overflow-auto max-h-40">
+            {this.state.error?.message || 'Unknown client-side exception'}
+          </p>
+          <p className="text-xs text-slate-500">
+            ฐานข้อมูล Supabase และเซิร์ฟเวอร์ยังทำงานปกติ (โควต้า Egress ยังเหลือเพียงพอ) ระบบดักจับข้อผิดพลาดไม่ให้หน้าจอค้าง
+          </p>
+          <div className="pt-2 flex justify-center gap-3">
+            <button
+              onClick={() => {
+                this.setState({ hasError: false, error: null });
+                window.location.reload();
+              }}
+              className="px-5 py-2.5 bg-red-600 hover:bg-red-700 text-white font-bold text-xs rounded-xl shadow-md transition cursor-pointer"
+            >
+              🔄 รีเฟรชหน้าเว็บใหม่
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+function AdminDashboardContent() {
   // Authentication State
   const [adminUser, setAdminUser] = useState<string | null>(null);
   const [loginUsername, setLoginUsername] = useState<string>('');
@@ -2149,7 +2198,7 @@ export default function AdminDashboardPage() {
                     </p>
                   </div>
                   <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 font-extrabold px-3 py-1.5 rounded-xl text-xs">
-                    ยอดโบนัสสะสม: +{selectedPerfItem.totalBonusAmount.toLocaleString()} บาท ({selectedPerfItem.bonusDetails?.length || 0} วัน)
+                    ยอดโบนัสสะสม: +{(selectedPerfItem.totalBonusAmount || 0).toLocaleString()} บาท ({selectedPerfItem.bonusDetails?.length || 0} วัน)
                   </div>
                 </div>
 
@@ -2179,11 +2228,11 @@ export default function AdminDashboardPage() {
                               🏬 {b.branchName} ({b.branchCode})
                             </td>
                             <td className="p-2.5 text-right font-mono font-bold text-slate-900">
-                              {b.totalSales.toLocaleString()} ฿
+                              {(b.totalSales || 0).toLocaleString()} ฿
                             </td>
                             <td className="p-2.5 text-center">
                               <span className="bg-emerald-100 text-emerald-800 border border-emerald-300 font-black px-2.5 py-1 rounded-full text-xs">
-                                +{b.amount.toLocaleString()} ฿
+                                +{(b.amount || 0).toLocaleString()} ฿
                               </span>
                             </td>
                             <td className="p-2.5 text-slate-800 text-[11px] font-medium">
@@ -2289,10 +2338,11 @@ export default function AdminDashboardPage() {
                     }
 
                     if (!clockedInDateSet.has(dStr)) {
-                      const dObj = new Date(dStr + 'T00:00:00');
+                      const [y, m, d] = dStr.split('-').map(Number);
+                      const dObj = new Date(y, m - 1, d);
                       const dayOfWeek = dObj.getDay();
                       const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
-                      const dayName = thaiDayNames[dayOfWeek];
+                      const dayName = thaiDayNames[dayOfWeek] || '';
 
                       const weekKey = getWeekKeyStr(dObj);
                       if (!weeklyUnclockedCountMap[weekKey]) {
@@ -2799,15 +2849,19 @@ export default function AdminDashboardPage() {
           ? diligenceReport
           : computeClientDiligence(employees, attendanceLogs, leaveRecords, selectedMonthYear);
 
-        const filteredDiligence = activeDiligenceList.filter((row: any) => {
+        const safeActiveDiligence = Array.isArray(activeDiligenceList) ? activeDiligenceList.filter(Boolean) : [];
+
+        const filteredDiligence = safeActiveDiligence.filter((row: any) => {
+          if (!row || !row.employee) return false;
           if (selectedDiligenceBranchId === 'ALL') return true;
-          return row.employee.homeBranchId === selectedDiligenceBranchId || row.employee.homeBranch?.id === selectedDiligenceBranchId;
+          const bId = row.employee.homeBranchId || row.employee.homeBranch?.id;
+          return bId === selectedDiligenceBranchId;
         });
 
         const totalStaffCount = filteredDiligence.length;
-        const eligibleStaffCount = filteredDiligence.filter((r: any) => r.evalResult?.isEligible).length;
+        const eligibleStaffCount = filteredDiligence.filter((r: any) => r?.evalResult?.isEligible).length;
         const totalPayoutAmount = filteredDiligence.reduce((sum: number, r: any) => {
-          return r.evalResult?.isEligible ? sum + (r.evalResult.allowanceAmount || 500) : sum;
+          return r?.evalResult?.isEligible ? sum + (r.evalResult.allowanceAmount || 500) : sum;
         }, 0);
 
         return (
@@ -2893,53 +2947,53 @@ export default function AdminDashboardPage() {
                       </tr>
                     ) : (
                       filteredDiligence.map((row) => (
-                        <tr key={row.employee.id} className="hover:bg-slate-50">
+                        <tr key={row?.employee?.id || Math.random()} className="hover:bg-slate-50">
                           <td className="p-3 font-bold text-slate-900">
-                            {row.employee.fullName} ({row.employee.nickname || 'พนักงาน'})
+                            {row?.employee?.fullName || 'ไม่ระบุ'} ({row?.employee?.nickname || 'พนักงาน'})
                           </td>
                           <td className="p-3 text-slate-600 font-medium">
-                            {row.employee.homeBranch?.name || '-'}
+                            {row?.employee?.homeBranch?.name || '-'}
                           </td>
                           <td className="p-3">
                             <span
                               className={`text-[10px] font-bold px-2 py-0.5 rounded ${
-                                row.employee.employmentType === 'PART_TIME'
+                                row?.employee?.employmentType === 'PART_TIME'
                                   ? 'bg-amber-100 text-amber-900 border border-amber-300'
                                   : 'bg-sky-100 text-sky-900 border border-sky-300'
                               }`}
                             >
-                              {row.employee.employmentType === 'PART_TIME' ? '⏳ Part-Time' : '💼 Full-Time'}
+                              {row?.employee?.employmentType === 'PART_TIME' ? '⏳ Part-Time' : '💼 Full-Time'}
                             </span>
                           </td>
                           <td className="p-3 text-center font-bold">
-                            <span className={row.diligence?.lateCount >= 3 ? 'text-red-600 font-black' : 'text-slate-800'}>
-                              {row.diligence?.lateCount || 0} ครั้ง
+                            <span className={(row?.diligence?.lateCount || 0) >= 3 ? 'text-red-600 font-black' : 'text-slate-800'}>
+                              {row?.diligence?.lateCount || 0} ครั้ง
                             </span>
                           </td>
                           <td className="p-3 text-center font-bold">
-                            <span className={row.diligence?.leaveCount > 0 ? 'text-red-600 font-extrabold' : 'text-slate-800'}>
-                              {row.diligence?.leaveCount || 0} วัน
+                            <span className={(row?.diligence?.leaveCount || 0) > 0 ? 'text-red-600 font-extrabold' : 'text-slate-800'}>
+                              {row?.diligence?.leaveCount || 0} วัน
                             </span>
                           </td>
                           <td className="p-3 text-center font-bold">
-                            <span className={row.diligence?.absentCount > 0 ? 'text-red-600 font-extrabold' : 'text-slate-800'}>
-                              {row.diligence?.absentCount || 0} วัน
+                            <span className={(row?.diligence?.absentCount || 0) > 0 ? 'text-red-600 font-extrabold' : 'text-slate-800'}>
+                              {row?.diligence?.absentCount || 0} วัน
                             </span>
                           </td>
                           <td className="p-3 text-center">
-                            {row.evalResult.isEligible ? (
+                            {row?.evalResult?.isEligible ? (
                               <span className="bg-emerald-100 text-emerald-800 border border-emerald-300 font-bold px-2.5 py-1 rounded-full text-[11px]">
                                 ✅ ผ่านเกณฑ์ได้รับ
                               </span>
                             ) : (
-                              <span className="bg-red-100 text-red-800 border border-red-300 font-bold px-2.5 py-1 rounded-full text-[11px]" title={row.evalResult.reason}>
-                                ❌ ตัดสิทธิ์ ({row.evalResult.reason})
+                              <span className="bg-red-100 text-red-800 border border-red-300 font-bold px-2.5 py-1 rounded-full text-[11px]" title={row?.evalResult?.reason || ''}>
+                                ❌ ตัดสิทธิ์ ({row?.evalResult?.reason || 'ไม่ผ่านเกณฑ์'})
                               </span>
                             )}
                           </td>
                           <td className="p-3 text-right font-black text-sm">
-                            {row.evalResult.isEligible ? (
-                              <span className="text-emerald-600">+500 บาท</span>
+                            {row?.evalResult?.isEligible ? (
+                              <span className="text-emerald-600">+{row?.evalResult?.allowanceAmount || 500} บาท</span>
                             ) : (
                               <span className="text-slate-400">0 บาท</span>
                             )}
@@ -2998,7 +3052,7 @@ export default function AdminDashboardPage() {
           const bonusDetails = empBonusPayouts;
           const bonusAmount = empBonusPayouts.reduce((sum, b) => sum + (b.amount || 0), 0);
 
-          const diligenceData = activeDiligenceList.find((d: any) => d.employee.id === emp.id);
+          const diligenceData = (activeDiligenceList || []).find((d: any) => d?.employee?.id === emp.id);
           let diligenceAmount = 0;
           let diligenceStatus = 'ตัดสิทธิ์ / ไม่ได้สิทธิ์';
 
@@ -3058,10 +3112,11 @@ export default function AdminDashboardPage() {
             }
 
             if (!clockedInDateSet.has(dStr)) {
-              const dObj = new Date(dStr + 'T00:00:00');
+              const [y, m, d] = dStr.split('-').map(Number);
+              const dObj = new Date(y, m - 1, d);
               const dayOfWeek = dObj.getDay(); // 0 = Sunday, 6 = Saturday
               const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
-              const dayName = thaiDayNames[dayOfWeek];
+              const dayName = thaiDayNames[dayOfWeek] || '';
 
               const leaveItem = empLeavesMap.get(dStr);
               let reason = 'ไม่ได้ลงเวลาเข้างาน';
@@ -4666,5 +4721,13 @@ export default function AdminDashboardPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function AdminDashboardPage() {
+  return (
+    <AdminErrorBoundary>
+      <AdminDashboardContent />
+    </AdminErrorBoundary>
   );
 }
