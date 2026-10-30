@@ -2,6 +2,28 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { calculateDailySalesBonus } from '@/lib/bonusEngine';
 
+function normalizeDateStr(rawDate: string): string {
+  const clean = rawDate.trim().replace(/\//g, '-');
+  const parts = clean.split('-');
+  if (parts.length === 3) {
+    if (parts[0].length === 4) {
+      // YYYY-MM-DD
+      return `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
+    } else if (parts[2].length === 4) {
+      // MM-DD-YYYY or DD-MM-YYYY
+      const p0 = parseInt(parts[0], 10);
+      const p1 = parseInt(parts[1], 10);
+      // If first part is > 12, it must be DD-MM-YYYY
+      if (p0 > 12) {
+        return `${parts[2]}-${String(p1).padStart(2, '0')}-${String(p0).padStart(2, '0')}`;
+      }
+      // Otherwise default to MM-DD-YYYY
+      return `${parts[2]}-${String(p0).padStart(2, '0')}-${String(p1).padStart(2, '0')}`;
+    }
+  }
+  return clean;
+}
+
 /**
  * Bulk Sales Import API from CSV data or Google Sheets copy-paste format.
  * Format expected (header optional):
@@ -17,7 +39,10 @@ export async function POST(request: Request) {
     let itemsToProcess: Array<{ dateStr: string; branchCodeOrName: string; totalSales: number }> = [];
 
     if (Array.isArray(rowsData)) {
-      itemsToProcess = rowsData;
+      itemsToProcess = rowsData.map((r) => ({
+        ...r,
+        dateStr: normalizeDateStr(r.dateStr),
+      }));
     } else if (typeof csvText === 'string') {
       // Parse CSV or TSV lines
       const lines = csvText.split(/\r?\n/).filter((line) => line.trim().length > 0);
@@ -32,7 +57,8 @@ export async function POST(request: Request) {
         // Split by comma or tab
         const parts = line.includes('\t') ? line.split('\t') : line.split(',');
         if (parts.length >= 3) {
-          const dateStr = parts[0].trim();
+          const rawDate = parts[0].trim();
+          const dateStr = normalizeDateStr(rawDate);
           const branchCodeOrName = parts[1].trim();
           const salesVal = parseFloat(parts[2].trim().replace(/,/g, ''));
 
