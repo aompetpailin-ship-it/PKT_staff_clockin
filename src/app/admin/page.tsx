@@ -58,20 +58,15 @@ function computeClientDiligence(
   const year = parseInt(yearStr, 10);
   const month = parseInt(monthStr, 10);
   const thaiDateNow = getThaiDateStr();
-  const [nowYear, nowMonth, nowDay] = thaiDateNow.split('-').map((v) => parseInt(v, 10));
 
-  let lastDay = new Date(year, month, 0).getDate();
-  if (year === nowYear && month === nowMonth) {
-    lastDay = Math.min(lastDay, nowDay);
-  }
-
+  // Helper function to get Monday-Sunday ISO week key
   const getWeekKeyStr = (dateObj: Date) => {
-    const d = new Date(dateObj.getFullYear(), dateObj.getMonth(), dateObj.getDate());
-    const day = d.getDay() === 0 ? 7 : d.getDay();
-    d.setDate(d.getDate() + 4 - day);
-    const yearStart = new Date(d.getFullYear(), 0, 1);
+    const d = new Date(Date.UTC(dateObj.getFullYear(), dateObj.getMonth(), dateObj.getDate()));
+    const day = d.getUTCDay() === 0 ? 7 : d.getUTCDay();
+    d.setUTCDate(d.getUTCDate() + 4 - day);
+    const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
     const weekNo = Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
-    return `${d.getFullYear()}-W${String(weekNo).padStart(2, '0')}`;
+    return `${d.getUTCFullYear()}-W${String(weekNo).padStart(2, '0')}`;
   };
 
   return employees.map((emp) => {
@@ -83,9 +78,7 @@ function computeClientDiligence(
     const createdAtDateStr = emp.createdAt ? String(emp.createdAt).slice(0, 10) : null;
     const firstActiveDateStr = firstClockInDateStr || createdAtDateStr;
 
-    const clockedInDateSet = new Set(
-      empLogs.filter((a) => a.status !== 'ABSENT' && a.status !== 'LEAVE').map((a) => a.dateStr)
-    );
+    const clockedInDateSet = new Set(empLogs.map((a) => a.dateStr));
     const leavesMap = new Map<string, any>();
     empLeaves.forEach((l) => leavesMap.set(l.dateStr, l));
 
@@ -93,32 +86,42 @@ function computeClientDiligence(
     let leaveCount = 0;
     let absentCount = 0;
 
+    // Count late entries from attendance logs
     for (const att of empLogs) {
-      if (att.status === 'LATE') lateCount += 1;
-      else if (att.status === 'ABSENT' || (att.lateMinutes || 0) > 30) absentCount += 1;
+      if (att.status === 'LATE' || (att.lateMinutes || 0) > 15) {
+        lateCount += 1;
+      }
     }
 
     const weeklyUnclockedCountMap: Record<string, number> = {};
-    for (let day = 1; day <= lastDay; day++) {
+    const daysInMonth = new Date(year, month, 0).getDate();
+
+    for (let day = 1; day <= daysInMonth; day++) {
       const dStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
       if (firstActiveDateStr && dStr < firstActiveDateStr) continue;
 
+      // Incomplete today or future days in current month should NEVER be counted as unclocked/absent
+      if (dStr >= thaiDateNow && !clockedInDateSet.has(dStr)) {
+        continue;
+      }
+
       if (!clockedInDateSet.has(dStr)) {
-        const dObj = new Date(dStr + 'T00:00:00');
-        const dayOfWeek = dObj.getDay();
-        const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+        const [y, m, d] = dStr.split('-').map(Number);
+        const dObj = new Date(y, m - 1, d);
         const leaveItem = leavesMap.get(dStr);
 
         if (leaveItem) {
-          if (leaveItem.leaveType === 'ABSENT') absentCount += 1;
-          else leaveCount += 1;
-        } else if (isWeekend) {
-          absentCount += 1;
+          if (leaveItem.leaveType === 'ABSENT') {
+            absentCount += 1;
+          } else {
+            leaveCount += 1;
+          }
         } else {
+          // Full-time staff are allowed 1 flexible day off per week
           const weekKey = getWeekKeyStr(dObj);
           weeklyUnclockedCountMap[weekKey] = (weeklyUnclockedCountMap[weekKey] || 0) + 1;
           if (weeklyUnclockedCountMap[weekKey] > 1) {
-            absentCount += 1;
+            absentCount += 1; // 2nd+ unclocked day in same week = extra day off / absent
           }
         }
       }
@@ -3046,6 +3049,11 @@ export default function AdminDashboardPage() {
             
             // Exclude dates before employee's first active working/registration date
             if (firstActiveDateStr && dStr < firstActiveDateStr) {
+              continue;
+            }
+
+            // Today or future days in current month are still ongoing: do not count as unclocked day off yet
+            if (dStr >= thaiDateNow && !clockedInDateSet.has(dStr)) {
               continue;
             }
 
