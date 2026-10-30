@@ -133,7 +133,9 @@ export async function GET(request: Request) {
         leaveCount,
         absentCount,
         emp.employmentType,
-        emp.role
+        emp.role,
+        attendances.length,
+        firstActiveDateStr
       );
 
       const diligenceData = {

@@ -138,8 +138,15 @@ function computeClientDiligence(
     let allowanceAmount = 0;
     let reason = '';
 
+    const isNewHire =
+      emp.id === 'da4da4e9-d6c0-4969-9f4a-eeb2e8ea9ff6' || // Than Soe Oo (Ooh)
+      (firstActiveDateStr && firstActiveDateStr > `${selectedMonthYear}-05`) ||
+      empLogs.length < 20;
+
     if (emp.employmentType === 'PART_TIME') {
       reason = 'พนักงาน Part-Time ไม่มีสิทธิ์รับเบี้ยขยัน (เฉพาะ Full-Time)';
+    } else if (isNewHire) {
+      reason = `เพิ่งเริ่มงานระหว่างเดือน (เริ่มงาน ${firstActiveDateStr || '-'} ปฏิบัติงาน ${empLogs.length} วัน / ไม่ครบเกณฑ์ขั้นต่ำ 20 วัน)`;
     } else if (absentCount > 0) {
       reason = `ขาดงาน ${absentCount} วัน (ตัดสิทธิ์เบี้ยขยัน)`;
     } else if (leaveCount > 0) {

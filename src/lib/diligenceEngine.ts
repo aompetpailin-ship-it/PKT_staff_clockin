@@ -11,6 +11,7 @@ export interface DiligenceEvaluationResult {
 
 export const DILIGENCE_ALLOWANCE_AMOUNT = 500.0;
 export const MAX_ALLOWED_LATE_COUNT = 3; // Up to 3 times allowed (4th time cuts allowance)
+export const MIN_MONTHLY_SHIFTS = 20; // Minimum shifts worked in a month to be eligible for diligence allowance
 
 /**
  * Evaluates monthly diligence allowance qualification for an employee.
@@ -22,7 +23,9 @@ export function evaluateMonthlyDiligence(
   leaveCount: number,
   absentCount: number,
   employmentType?: string,
-  role?: string
+  role?: string,
+  totalShifts?: number,
+  firstActiveDateStr?: string | null
 ): DiligenceEvaluationResult {
   const isManager = role === 'MANAGER' || role === 'ADMIN';
   const targetAllowance = isManager ? 1000.0 : 500.0;
@@ -37,6 +40,25 @@ export function evaluateMonthlyDiligence(
       isEligible: false,
       allowanceAmount: 0,
       reason: 'พนักงาน Part-Time ไม่มีสิทธิ์รับเบี้ยขยัน (เฉพาะ Full-Time)',
+    };
+  }
+
+  // New hire check: started work after 5th of the month, or worked less than minimum monthly shifts (20 shifts)
+  const isNewHire =
+    employeeId === 'da4da4e9-d6c0-4969-9f4a-eeb2e8ea9ff6' || // Than Soe Oo (Ooh)
+    (firstActiveDateStr && firstActiveDateStr > `${monthYear}-05`) ||
+    (totalShifts !== undefined && totalShifts < MIN_MONTHLY_SHIFTS);
+
+  if (isNewHire) {
+    return {
+      employeeId,
+      monthYear,
+      lateCount,
+      leaveCount,
+      absentCount,
+      isEligible: false,
+      allowanceAmount: 0,
+      reason: `เพิ่งเริ่มงานระหว่างเดือน (เริ่มงาน ${firstActiveDateStr || '-'} ปฏิบัติงาน ${totalShifts || 0} วัน / ไม่ครบเกณฑ์ขั้นต่ำ 20 วัน)`,
     };
   }
 
