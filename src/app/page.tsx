@@ -414,7 +414,7 @@ export default function StaffClockInPage() {
           <div className="min-w-0">
             <h3 className="font-extrabold text-xs text-stone-900 truncate flex items-center gap-1.5">
               <span>สำหรับผู้จัดการ (Admin)</span>
-              <span className="bg-[#F97316] text-white text-[9px] px-1.5 py-0.5 rounded-full font-bold">อ้อม</span>
+              <span className="bg-[#F97316] text-white text-[9px] px-1.5 py-0.5 rounded-full font-bold">ออม</span>
             </h3>
             <p className="text-[10px] text-stone-500 font-semibold truncate">
               กรณีพนักงานลืมกดเข้างาน หรือต้องการลงเวลาย้อนหลัง
@@ -1006,7 +1006,7 @@ export default function StaffClockInPage() {
                   <span>➕ บันทึกเวลาเข้างาน (Admin Manual)</span>
                 </h3>
                 <p className="text-[11px] text-stone-500 font-semibold mt-0.5">
-                  สำหรับผู้จัดการ: <span className="text-[#F97316] font-bold">อ้อม (aommyisme)</span>
+                  สำหรับผู้จัดการ: <span className="text-[#F97316] font-bold">ออม (aommyisme)</span>
                 </p>
               </div>
               <button
