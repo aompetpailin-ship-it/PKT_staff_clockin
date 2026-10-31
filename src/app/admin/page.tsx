@@ -579,15 +579,19 @@ function AdminDashboardContent() {
     avatarUrl: '',
   });
 
-  // Check login cookie on load
+  // Check login cookie & localStorage on load
   useEffect(() => {
     const cookies = document.cookie.split('; ');
     const userCookie = cookies.find((c) => c.startsWith('pkt_admin_user='));
-    if (userCookie) {
-      const username = userCookie.split('=')[1];
-      if (['aommyisme', 'pon'].includes(username)) {
-        setAdminUser(username);
-      }
+    let username = userCookie ? userCookie.split('=')[1] : null;
+
+    if (!username && typeof window !== 'undefined') {
+      const stored = localStorage.getItem('pkt_admin_user');
+      if (stored) username = stored;
+    }
+
+    if (username && ['aommyisme', 'pon'].includes(username.toLowerCase())) {
+      setAdminUser(username.toLowerCase());
     }
   }, []);
 
@@ -635,6 +639,9 @@ function AdminDashboardContent() {
       const data = await res.json();
       if (data.success) {
         setAdminUser(data.user.username);
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('pkt_admin_user', data.user.username);
+        }
         setLoginPassword('');
       } else {
         setLoginError(data.error);
@@ -652,6 +659,9 @@ function AdminDashboardContent() {
       await fetch('/api/admin/logout', { method: 'POST' });
     } catch (e) {}
     document.cookie = 'pkt_admin_user=; Max-Age=0; path=/;';
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('pkt_admin_user');
+    }
     setAdminUser(null);
   };
 
@@ -1258,6 +1268,17 @@ function AdminDashboardContent() {
                 className="w-full p-3 bg-slate-50 border border-slate-300 text-slate-900 rounded-xl text-xs font-bold focus:ring-2 focus:ring-red-500 outline-none"
                 required
               />
+            </div>
+
+            <div className="bg-[#FFF8F0] p-3 rounded-2xl border border-orange-200 text-[11px] text-stone-600 flex items-center justify-between gap-2">
+              <span>💡 สำหรับผู้จัดการ <strong>aommyisme</strong></span>
+              <button
+                type="button"
+                onClick={() => { setLoginUsername('aommyisme'); setLoginPassword('664662'); }}
+                className="text-orange-600 font-bold hover:underline cursor-pointer"
+              >
+                แตะกรอกอัตโนมัติ ⚡
+              </button>
             </div>
 
             <button

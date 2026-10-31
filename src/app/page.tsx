@@ -60,6 +60,99 @@ export default function StaffClockInPage() {
   const [empSearchQuery, setEmpSearchQuery] = useState<string>('');
   const [empFilterType, setEmpFilterType] = useState<'ALL' | 'BRANCH' | 'FULL_TIME' | 'PART_TIME'>('ALL');
 
+  // Admin Manual Attendance State
+  const [isAdminAuth, setIsAdminAuth] = useState<boolean>(false);
+  const [showAdminPasswordModal, setShowAdminPasswordModal] = useState<boolean>(false);
+  const [adminPasswordInput, setAdminPasswordInput] = useState<string>('');
+  const [showManualModal, setShowManualModal] = useState<boolean>(false);
+  const [manualEmpId, setManualEmpId] = useState<string>('');
+  const [manualBranchId, setManualBranchId] = useState<string>('');
+  const [manualDateStr, setManualDateStr] = useState<string>(getThaiDateStr());
+  const [manualClockInTime, setManualClockInTime] = useState<string>('09:30');
+  const [manualClockOutTime, setManualClockOutTime] = useState<string>('21:00');
+  const [manualStatus, setManualStatus] = useState<string>('ON_TIME');
+  const [manualLateMinutes, setManualLateMinutes] = useState<number>(0);
+  const [manualNotes, setManualNotes] = useState<string>('');
+  const [isSubmittingManual, setIsSubmittingManual] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const stored = localStorage.getItem('pkt_admin_user');
+      if (stored && ['aommyisme', 'pon'].includes(stored.toLowerCase())) {
+        setIsAdminAuth(true);
+      }
+    }
+  }, []);
+
+  const handleOpenAdminManual = () => {
+    if (isAdminAuth) {
+      setManualEmpId(selectedEmpId || employees[0]?.id || '');
+      setManualBranchId(selectedBranchId || branches[0]?.id || '');
+      setManualDateStr(getThaiDateStr());
+      setShowManualModal(true);
+    } else {
+      setShowAdminPasswordModal(true);
+    }
+  };
+
+  const handleVerifyAdminPassword = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (adminPasswordInput.trim() === '664662') {
+      setIsAdminAuth(true);
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('pkt_admin_user', 'aommyisme');
+      }
+      setShowAdminPasswordModal(false);
+      setAdminPasswordInput('');
+      setManualEmpId(selectedEmpId || employees[0]?.id || '');
+      setManualBranchId(selectedBranchId || branches[0]?.id || '');
+      setManualDateStr(getThaiDateStr());
+      setShowManualModal(true);
+    } else {
+      alert('รหัสผ่านผู้จัดการไม่ถูกต้อง');
+    }
+  };
+
+  const handleSaveManualAttendance = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!manualEmpId || !manualBranchId || !manualDateStr) {
+      alert('กรุณาเลือกพนักงาน สาขา และวันที่ให้ครบถ้วน');
+      return;
+    }
+
+    setIsSubmittingManual(true);
+    try {
+      const res = await fetch('/api/attendance/logs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          employeeId: manualEmpId,
+          branchId: manualBranchId,
+          dateStr: manualDateStr,
+          clockInTime: manualClockInTime,
+          clockOutTime: manualClockOutTime,
+          status: manualStatus,
+          lateMinutes: manualStatus === 'LATE' ? Number(manualLateMinutes) : 0,
+          notes: manualNotes,
+          adminUser: 'aommyisme',
+        }),
+      });
+
+      const data = await res.json();
+      if (data.success) {
+        alert(data.message || 'บันทึกเวลาเข้างานสำเร็จ');
+        setShowManualModal(false);
+        if (manualEmpId) fetchTodayLogs(manualEmpId);
+      } else {
+        alert(data.error || 'เกิดข้อผิดพลาดในการบันทึกเวลาเข้างาน');
+      }
+    } catch (err: any) {
+      alert('เกิดข้อผิดพลาด: ' + err.message);
+    } finally {
+      setIsSubmittingManual(false);
+    }
+  };
+
   // Initialize Device Fingerprint ID
   useEffect(() => {
     let devId = localStorage.getItem('pkt_device_id');
@@ -311,6 +404,41 @@ export default function StaffClockInPage() {
           {alertMsg.text}
         </div>
       )}
+
+      {/* Admin Quick Action Banner: Manual Clock-In */}
+      <div className="bg-[#FFF8F0] border-2 border-[#F97316]/40 rounded-3xl p-4 shadow-sm flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="w-10 h-10 rounded-2xl bg-[#F97316]/10 border border-[#F97316]/30 flex items-center justify-center text-lg flex-shrink-0">
+            👩‍💼
+          </div>
+          <div className="min-w-0">
+            <h3 className="font-extrabold text-xs text-stone-900 truncate flex items-center gap-1.5">
+              <span>สำหรับผู้จัดการ (Admin)</span>
+              <span className="bg-[#F97316] text-white text-[9px] px-1.5 py-0.5 rounded-full font-bold">อ้อม</span>
+            </h3>
+            <p className="text-[10px] text-stone-500 font-semibold truncate">
+              กรณีพนักงานลืมกดเข้างาน หรือต้องการลงเวลาย้อนหลัง
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-1.5 flex-shrink-0">
+          <button
+            type="button"
+            onClick={handleOpenAdminManual}
+            className="bg-gradient-to-r from-[#F97316] to-[#EA580C] hover:from-[#EA580C] hover:to-[#C2410C] text-white font-extrabold text-xs px-3.5 py-2 rounded-2xl shadow-sm transition active:scale-95 flex items-center gap-1 cursor-pointer ring-2 ring-orange-200"
+          >
+            <span>➕ บันทึกเวลา</span>
+          </button>
+          <a
+            href="/admin"
+            className="p-2 bg-stone-100 hover:bg-stone-200 text-stone-700 rounded-2xl text-xs font-bold transition flex items-center shadow-xs"
+            title="ไปที่หน้า Admin Dashboard"
+          >
+            ⚙️
+          </a>
+        </div>
+      </div>
 
       {/* Warm Cream Main Card */}
       <div className="bg-[#FCFAF7] rounded-3xl p-5 shadow-xs border border-[#EBE4D8] space-y-4">
@@ -801,6 +929,260 @@ export default function StaffClockInPage() {
             >
               ตกลง (รับทราบ)
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Admin Floating Action Button (Fixed Bottom-Right for Mobile) */}
+      <div className="fixed bottom-5 right-5 z-40">
+        <button
+          type="button"
+          onClick={handleOpenAdminManual}
+          className="flex items-center gap-2 bg-gradient-to-r from-[#F97316] to-[#EA580C] hover:from-[#EA580C] hover:to-[#C2410C] text-white font-extrabold text-xs md:text-sm px-4 py-3 rounded-full shadow-xl ring-4 ring-orange-200 transition transform active:scale-95 cursor-pointer"
+        >
+          <span className="text-base">👩‍💼</span>
+          <span>ลงเวลาเข้างาน (Admin)</span>
+        </button>
+      </div>
+
+      {/* Admin Password Prompt Modal */}
+      {showAdminPasswordModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-[#FCFAF7] border border-[#EBE4D8] rounded-3xl p-6 max-w-sm w-full shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-150">
+            <div className="text-center space-y-1">
+              <div className="w-12 h-12 rounded-2xl bg-orange-100 text-[#F97316] flex items-center justify-center text-xl mx-auto border border-orange-200">
+                🔒
+              </div>
+              <h3 className="font-extrabold text-base text-stone-900">
+                ยืนยันตัวตนผู้จัดการ (Admin)
+              </h3>
+              <p className="text-xs text-stone-500 font-semibold">
+                กรุณาระบุรหัสผ่านผู้จัดการเพื่อเปิดฟังก์ชันบันทึกเวลา
+              </p>
+            </div>
+
+            <form onSubmit={handleVerifyAdminPassword} className="space-y-3">
+              <div>
+                <input
+                  type="password"
+                  autoFocus
+                  placeholder="กรอกรหัสผ่านผู้จัดการ (PIN)"
+                  value={adminPasswordInput}
+                  onChange={(e) => setAdminPasswordInput(e.target.value)}
+                  className="w-full p-3 bg-white border border-[#E5DDD4] rounded-2xl text-center text-base tracking-widest font-mono font-bold text-stone-900 outline-none focus:ring-2 focus:ring-[#F97316]"
+                />
+              </div>
+
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowAdminPasswordModal(false);
+                    setAdminPasswordInput('');
+                  }}
+                  className="w-1/2 py-2.5 bg-stone-100 hover:bg-stone-200 text-stone-700 font-bold text-xs rounded-2xl transition cursor-pointer"
+                >
+                  ยกเลิก
+                </button>
+                <button
+                  type="submit"
+                  className="w-1/2 py-2.5 bg-[#F97316] hover:bg-[#EA580C] text-white font-extrabold text-xs rounded-2xl shadow-sm transition cursor-pointer"
+                >
+                  ยืนยัน
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Manual Attendance Modal (Staff Clock-In Page) */}
+      {showManualModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-[#FCFAF7] border border-[#EBE4D8] rounded-3xl p-5 md:p-6 max-w-lg w-full max-h-[90vh] overflow-y-auto shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between border-b border-[#EBE4D8] pb-3">
+              <div>
+                <h3 className="font-extrabold text-stone-900 text-sm md:text-base flex items-center gap-1.5">
+                  <span>➕ บันทึกเวลาเข้างาน (Admin Manual)</span>
+                </h3>
+                <p className="text-[11px] text-stone-500 font-semibold mt-0.5">
+                  สำหรับผู้จัดการ: <span className="text-[#F97316] font-bold">อ้อม (aommyisme)</span>
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowManualModal(false)}
+                className="text-stone-400 hover:text-stone-700 font-bold text-base cursor-pointer p-1"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveManualAttendance} className="space-y-3.5 text-xs">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {/* Employee Selection */}
+                <div>
+                  <label className="block font-bold text-stone-700 mb-1">
+                    👤 พนักงาน <span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    value={manualEmpId}
+                    onChange={(e) => {
+                      const empId = e.target.value;
+                      setManualEmpId(empId);
+                      const emp = employees.find((x) => x.id === empId);
+                      if (emp && emp.homeBranchId) {
+                        setManualBranchId(emp.homeBranchId);
+                      }
+                    }}
+                    required
+                    className="w-full p-2.5 bg-white border border-[#E5DDD4] rounded-xl font-bold text-stone-900 outline-none focus:ring-2 focus:ring-[#F97316]"
+                  >
+                    <option value="">-- เลือกพนักงาน --</option>
+                    {employees.map((emp) => (
+                      <option key={emp.id} value={emp.id}>
+                        {emp.fullName} ({emp.nickname || 'พนักงาน'})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Branch Selection */}
+                <div>
+                  <label className="block font-bold text-stone-700 mb-1">
+                    🏬 สาขาที่เข้างาน <span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    value={manualBranchId}
+                    onChange={(e) => setManualBranchId(e.target.value)}
+                    required
+                    className="w-full p-2.5 bg-white border border-[#E5DDD4] rounded-xl font-bold text-stone-900 outline-none focus:ring-2 focus:ring-[#F97316]"
+                  >
+                    <option value="">-- เลือกสาขา --</option>
+                    {branches.map((b) => (
+                      <option key={b.id} value={b.id}>
+                        {b.name} ({b.code})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Date & Time */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="block font-bold text-stone-700 mb-1">
+                    📅 วันที่เข้างาน <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="date"
+                    value={manualDateStr}
+                    onChange={(e) => setManualDateStr(e.target.value)}
+                    required
+                    className="w-full p-2.5 bg-white border border-[#E5DDD4] rounded-xl font-bold text-stone-900 outline-none focus:ring-2 focus:ring-[#F97316]"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-bold text-stone-700 mb-1">
+                    ⏰ เวลาเข้างาน
+                  </label>
+                  <input
+                    type="time"
+                    value={manualClockInTime}
+                    onChange={(e) => setManualClockInTime(e.target.value)}
+                    className="w-full p-2.5 bg-white border border-[#E5DDD4] rounded-xl font-bold text-stone-900 outline-none focus:ring-2 focus:ring-[#F97316]"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-bold text-stone-700 mb-1">
+                    🏁 เวลาออกงาน
+                  </label>
+                  <input
+                    type="time"
+                    value={manualClockOutTime}
+                    onChange={(e) => setManualClockOutTime(e.target.value)}
+                    className="w-full p-2.5 bg-white border border-[#E5DDD4] rounded-xl font-bold text-stone-900 outline-none focus:ring-2 focus:ring-[#F97316]"
+                  />
+                </div>
+              </div>
+
+              {/* Status */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold text-stone-700 mb-1">
+                    🏷️ สถานะ / รูปแบบการเข้างาน
+                  </label>
+                  <select
+                    value={manualStatus}
+                    onChange={(e) => setManualStatus(e.target.value)}
+                    className="w-full p-2.5 bg-white border border-[#E5DDD4] rounded-xl font-bold text-stone-900 outline-none focus:ring-2 focus:ring-[#F97316]"
+                  >
+                    <option value="ON_TIME">🟢 ตรงเวลา (ON_TIME)</option>
+                    <option value="COVER_SHIFT">🔄 เข้ากะแทน (มาบ่าย / กะเพิ่ม) (COVER_SHIFT)</option>
+                    <option value="LATE">⚠️ มาสาย (LATE)</option>
+                    <option value="ABSENT">🛑 ขาดงาน (ABSENT)</option>
+                  </select>
+                </div>
+
+                {manualStatus === 'LATE' ? (
+                  <div>
+                    <label className="block font-bold text-amber-800 mb-1">
+                      ⚠️ จำนวนนาทีที่สาย (นาที)
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="480"
+                      value={manualLateMinutes}
+                      onChange={(e) => setManualLateMinutes(Number(e.target.value))}
+                      className="w-full p-2.5 bg-amber-50 border border-amber-300 rounded-xl font-bold text-amber-900 outline-none focus:ring-2 focus:ring-amber-500"
+                    />
+                  </div>
+                ) : (
+                  <div className="flex items-center text-[11px] text-stone-500 p-2.5 bg-[#F5EFEA] rounded-xl border border-[#E5DDD4]">
+                    <span>
+                      {manualStatus === 'COVER_SHIFT'
+                        ? '💡 เข้ากะแทน/มาบ่าย ไม่ถูกนับเป็นสาย และนับกะทำงานตามจริง'
+                        : '💡 สถานะตรงเวลา ไม่มีการหักเวลาสาย'}
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              {/* Notes */}
+              <div>
+                <label className="block font-bold text-stone-700 mb-1">
+                  📝 หมายเหตุ
+                </label>
+                <input
+                  type="text"
+                  placeholder="เช่น เข้ากะแทนเพื่อนร่วมงาน, ลืมกดเข้างาน เป็นต้น"
+                  value={manualNotes}
+                  onChange={(e) => setManualNotes(e.target.value)}
+                  className="w-full p-2.5 bg-white border border-[#E5DDD4] rounded-xl text-stone-900 outline-none focus:ring-2 focus:ring-[#F97316]"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2 border-t border-[#EBE4D8]">
+                <button
+                  type="button"
+                  onClick={() => setShowManualModal(false)}
+                  disabled={isSubmittingManual}
+                  className="px-4 py-2.5 bg-[#F5EFEA] hover:bg-[#E5DDD4] text-stone-700 font-bold rounded-xl transition cursor-pointer"
+                >
+                  ยกเลิก
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmittingManual}
+                  className="px-5 py-2.5 bg-[#F97316] hover:bg-[#EA580C] text-white font-extrabold rounded-xl shadow-sm transition cursor-pointer disabled:opacity-50"
+                >
+                  {isSubmittingManual ? 'กำลังบันทึก...' : '💾 บันทึกเวลาเข้างาน'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
