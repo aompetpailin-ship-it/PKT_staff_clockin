@@ -81,6 +81,13 @@ export async function GET(request: Request) {
       let lateCount = 0;
       let leaveCount = 0;
       let absentCount = 0;
+      let halfDayLeaveCount = 0;
+
+      for (const l of leaves) {
+        if (l.leaveType === 'HALF_DAY_MORNING' || l.leaveType === 'HALF_DAY_AFTERNOON' || l.leaveType?.includes('HALF_DAY')) {
+          halfDayLeaveCount += 1;
+        }
+      }
 
       // Count late entries from attendance records
       for (const att of attendances) {
@@ -112,6 +119,8 @@ export async function GET(request: Request) {
           if (leaveItem) {
             if (leaveItem.leaveType === 'ABSENT') {
               absentCount += 1;
+            } else if (leaveItem.leaveType === 'HALF_DAY_MORNING' || leaveItem.leaveType === 'HALF_DAY_AFTERNOON' || leaveItem.leaveType?.includes('HALF_DAY')) {
+              // Handled via halfDayLeaveCount with 1-time tolerance
             } else {
               leaveCount += 1;
             }
@@ -135,7 +144,8 @@ export async function GET(request: Request) {
         emp.employmentType,
         emp.role,
         attendances.length,
-        firstActiveDateStr
+        firstActiveDateStr,
+        halfDayLeaveCount
       );
 
       const diligenceData = {

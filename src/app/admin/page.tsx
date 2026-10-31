@@ -23,6 +23,8 @@ const LEAVE_TYPES: Record<string, { label: string; badge: string }> = {
   SICK_LEAVE: { label: '🤒 ลาป่วย', badge: 'bg-amber-100 text-amber-900 border-amber-300' },
   CASUAL_LEAVE: { label: '📝 ลากิจ', badge: 'bg-sky-100 text-sky-900 border-sky-300' },
   ANNUAL_LEAVE: { label: '🏖️ ลาพักร้อน', badge: 'bg-purple-100 text-purple-900 border-purple-300' },
+  HALF_DAY_MORNING: { label: '🌅 ลาครึ่งวัน (เช้า)', badge: 'bg-orange-100 text-orange-900 border-orange-300' },
+  HALF_DAY_AFTERNOON: { label: '🌇 ลาครึ่งวัน (บ่าย)', badge: 'bg-amber-100 text-amber-900 border-amber-300' },
   ABSENT: { label: '❌ ขาดงาน', badge: 'bg-red-100 text-red-900 border-red-300' },
 };
 
@@ -90,6 +92,13 @@ function computeClientDiligence(
     let lateCount = 0;
     let leaveCount = 0;
     let absentCount = 0;
+    let halfDayLeaveCount = 0;
+
+    for (const l of empLeaves) {
+      if (l.leaveType === 'HALF_DAY_MORNING' || l.leaveType === 'HALF_DAY_AFTERNOON' || l.leaveType?.includes('HALF_DAY')) {
+        halfDayLeaveCount += 1;
+      }
+    }
 
     // Count late entries from attendance logs
     for (const att of empLogs) {
@@ -118,6 +127,8 @@ function computeClientDiligence(
         if (leaveItem) {
           if (leaveItem.leaveType === 'ABSENT') {
             absentCount += 1;
+          } else if (leaveItem.leaveType === 'HALF_DAY_MORNING' || leaveItem.leaveType === 'HALF_DAY_AFTERNOON' || leaveItem.leaveType?.includes('HALF_DAY')) {
+            // Handled via halfDayLeaveCount (1-time allowance)
           } else {
             leaveCount += 1;
           }
@@ -150,13 +161,16 @@ function computeClientDiligence(
     } else if (absentCount > 0) {
       reason = `ขาดงาน ${absentCount} วัน (ตัดสิทธิ์เบี้ยขยัน)`;
     } else if (leaveCount > 0) {
-      reason = `มีการลางาน ${leaveCount} วัน (ตัดสิทธิ์เบี้ยขยัน)`;
+      reason = `มีการลางานเต็มวัน ${leaveCount} วัน (ตัดสิทธิ์เบี้ยขยัน)`;
+    } else if (halfDayLeaveCount > 1) {
+      reason = `ลาครึ่งวัน ${halfDayLeaveCount} ครั้ง เกินโควตาที่อนุโลม (อนุโลมได้ไม่เกิน 1 ครั้ง/เดือน)`;
     } else if (lateCount >= 4) {
       reason = `มาสาย ${lateCount} ครั้ง (อนุญาตสายได้ไม่เกิน 3 ครั้ง/เดือน)`;
     } else {
       isEligible = true;
       allowanceAmount = targetAllowance;
-      reason = `ผ่านเกณฑ์เบี้ยขยันประจำเดือน (${isManager ? 'Manager +1,000฿' : '+500฿'}, มาสาย ${lateCount} ครั้ง, ไม่ขาด ไม่ลา)`;
+      const halfDayNote = halfDayLeaveCount === 1 ? ' (อนุโลมลาครึ่งวัน 1 ครั้ง)' : '';
+      reason = `ผ่านเกณฑ์เบี้ยขยันประจำเดือน (${isManager ? 'Manager +1,000฿' : '+500฿'}, มาสาย ${lateCount} ครั้ง, ไม่ขาด ไม่ลาเต็มวัน${halfDayNote})`;
     }
 
     return {
@@ -377,7 +391,7 @@ function AdminDashboardContent() {
       alert('ไม่มีข้อมูลสำหรับส่งออก');
       return;
     }
-    const headers = ['ชื่อ-นามสกุล', 'ชื่อเล่น', 'สาขาประจำ', 'ประเภทจ้างงาน', 'จำนวนกะเข้างาน', 'เบี้ยขยัน (บาท)', 'โบนัสยอดขาย (บาท)', 'รวมรับเงินพิเศษ (บาท)', 'หักหยุดเสาร์อาทิตย์ (บาท)', 'ยอดจ่ายสุทธิ (บาท)'];
+    const headers = ['ชื่อ-นามสกุล', 'ชื่อเล่น', 'สาขาประจำ', 'ประเภทจ้างงาน', 'จำนวนกะเข้างาน', 'เบี้ยขยัน (บาท)', 'โบนัสยอดขาย (บาท)', 'ค่ากะฉุกเฉิน (บาท)', 'รวมรับเงินพิเศษ (บาท)', 'หักหยุดเสาร์อาทิตย์ (บาท)', 'ยอดจ่ายสุทธิ (บาท)'];
     const rows = payrollData.map((r) => [
       `"${r.employee.fullName}"`,
       `"${r.employee.nickname || ''}"`,
@@ -386,6 +400,7 @@ function AdminDashboardContent() {
       r.shiftsCount || 0,
       r.diligenceAmount || 0,
       r.bonusAmount || 0,
+      r.emergencyPay || 0,
       r.totalExtraPay || 0,
       r.totalWeekendDeduction || 0,
       r.totalNetPay || 0,
@@ -1916,6 +1931,8 @@ function AdminDashboardContent() {
                   <option value="SICK_LEAVE">🤒 ลาป่วย (Sick Leave)</option>
                   <option value="CASUAL_LEAVE">📝 ลากิจ (Casual Leave)</option>
                   <option value="ANNUAL_LEAVE">🏖️ ลาพักร้อน (Annual Leave)</option>
+                  <option value="HALF_DAY_MORNING">🌅 ลาครึ่งวัน - ช่วงเช้า (Half-Day Morning)</option>
+                  <option value="HALF_DAY_AFTERNOON">🌇 ลาครึ่งวัน - ช่วงบ่าย (Half-Day Afternoon)</option>
                   <option value="ABSENT">❌ ขาดงาน (Absent)</option>
                 </select>
               </div>
@@ -3284,18 +3301,53 @@ function AdminDashboardContent() {
           const weekendDaysOffCount = dayOffDetails.filter((d) => d.isWeekend).length;
           const totalWeekendDeduction = weekendDaysOffCount * 500;
 
-          const totalNetPay = bonusAmount + diligenceAmount - totalWeekendDeduction;
+          // Compute exact shifts: full shift = 1.0, half day / cover shift = 0.5
+          let shiftsCount = 0;
+          let emergencyShiftsCount = 0;
+
+          for (const l of empLogs) {
+            const leaveOnDate = empLeavesMap.get(l.dateStr);
+            const hasHalfDayLeave = Boolean(
+              leaveOnDate && (
+                leaveOnDate.leaveType === 'HALF_DAY_MORNING' ||
+                leaveOnDate.leaveType === 'HALF_DAY_AFTERNOON' ||
+                leaveOnDate.leaveType?.includes('HALF_DAY')
+              )
+            );
+            const isHalfDay =
+              l.status === 'COVER_SHIFT' ||
+              l.status === 'HALF_DAY' ||
+              hasHalfDayLeave ||
+              l.notes?.includes('ฉุกเฉิน') ||
+              l.notes?.includes('เข้ากะแทน') ||
+              l.notes?.includes('มาบ่าย');
+
+            if (isHalfDay) {
+              shiftsCount += 0.5;
+              if (l.status === 'COVER_SHIFT' || l.notes?.includes('ฉุกเฉิน') || l.notes?.includes('เข้ากะแทน')) {
+                emergencyShiftsCount += 1;
+              }
+            } else {
+              shiftsCount += 1.0;
+            }
+          }
+
+          const emergencyPay = emergencyShiftsCount * 200;
+          const totalExtraPay = bonusAmount + diligenceAmount + emergencyPay;
+          const totalNetPay = totalExtraPay - totalWeekendDeduction;
 
           return {
             employee: emp,
             homeBranchName: emp.homeBranch?.name || '-',
-            shiftsCount: empLogs.length,
+            shiftsCount,
+            emergencyShiftsCount,
+            emergencyPay,
             bonusAmount,
             bonusDaysCount: bonusDetails.length,
             bonusDetails,
             diligenceAmount,
             diligenceStatus,
-            totalExtraPay: bonusAmount + diligenceAmount,
+            totalExtraPay,
             totalDaysOff,
             weekdayDaysOffCount,
             weekendDaysOffCount,
@@ -3329,6 +3381,7 @@ function AdminDashboardContent() {
 
         const totalBonusAll = fullTimePayroll.reduce((sum, r) => sum + r.bonusAmount, 0);
         const totalDiligenceAll = fullTimePayroll.reduce((sum, r) => sum + r.diligenceAmount, 0);
+        const totalEmergencyPayAll = fullTimePayroll.reduce((sum, r) => sum + (r.emergencyPay || 0), 0);
         const totalExtraAll = fullTimePayroll.reduce((sum, r) => sum + r.totalExtraPay, 0);
         const totalWeekendDeductionAll = fullTimePayroll.reduce((sum, r) => sum + r.totalWeekendDeduction, 0);
         const grandTotalNet = fullTimePayroll.reduce((sum, r) => sum + r.totalNetPay, 0);
@@ -3440,7 +3493,7 @@ function AdminDashboardContent() {
               </div>
 
               {/* OVERVIEW STAT CARDS (FULL-TIME) */}
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3 pt-2 border-t border-[#EBE4D8]">
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3 pt-2 border-t border-[#EBE4D8]">
                 <div className="bg-[#D8F3E5] p-3.5 rounded-2xl border border-[#B6E7CE] space-y-1">
                   <p className="text-[11px] font-bold text-[#14533C]">💰 โบนัสยอดขายรวม</p>
                   <p className="text-xl font-black text-[#14533C]">+{totalBonusAll.toLocaleString()} ฿</p>
@@ -3448,6 +3501,10 @@ function AdminDashboardContent() {
                 <div className="bg-[#FCE5CD] p-3.5 rounded-2xl border border-[#F9D3AD] space-y-1">
                   <p className="text-[11px] font-bold text-[#783E10]">🏆 เบี้ยขยันรวม</p>
                   <p className="text-xl font-black text-[#783E10]">+{totalDiligenceAll.toLocaleString()} ฿</p>
+                </div>
+                <div className="bg-[#FFF8F0] p-3.5 rounded-2xl border border-orange-200 space-y-1">
+                  <p className="text-[11px] font-bold text-orange-800">🚨 ค่ากะฉุกเฉินรวม</p>
+                  <p className="text-xl font-black text-orange-600">+{totalEmergencyPayAll.toLocaleString()} ฿</p>
                 </div>
                 <div className="bg-orange-50 p-3.5 rounded-2xl border border-orange-200 space-y-1">
                   <p className="text-[11px] font-bold text-[#F97316]">✨ รวมเงินพิเศษทั้งหมด</p>
@@ -3475,6 +3532,7 @@ function AdminDashboardContent() {
                       <th className="p-3 text-center">จำนวนกะเข้างาน</th>
                       <th className="p-3 text-right">เบี้ยขยัน</th>
                       <th className="p-3 text-right">โบนัสยอดขาย</th>
+                      <th className="p-3 text-right text-orange-600">กะฉุกเฉิน (+200฿)</th>
                       <th className="p-3 text-right text-[#F97316]">รวมรับเงินพิเศษ</th>
                       <th className="p-3">วันหยุดประจำเดือน</th>
                       <th className="p-3 text-right text-red-600">หักหยุด ส.-อา.</th>
@@ -3484,7 +3542,7 @@ function AdminDashboardContent() {
                   <tbody className="divide-y divide-[#EBE4D8] bg-white">
                     {fullTimePayroll.length === 0 ? (
                       <tr>
-                        <td colSpan={9} className="p-6 text-center text-stone-400 italic">
+                        <td colSpan={10} className="p-6 text-center text-stone-400 italic">
                           ไม่พบข้อมูลพนักงาน Full-Time ตามเงื่อนไขหรือสาขาที่เลือก
                         </td>
                       </tr>
@@ -3559,6 +3617,20 @@ function AdminDashboardContent() {
                                 <span className="font-mono font-semibold text-xs text-stone-400">0 ฿</span>
                                 <span className="text-[10px] text-stone-400 italic">ไม่มีโบนัส</span>
                               </div>
+                            )}
+                          </td>
+                          <td className="p-3 text-right font-mono font-bold">
+                            {r.emergencyShiftsCount > 0 ? (
+                              <div className="flex flex-col items-end">
+                                <span className="text-orange-700 font-extrabold bg-orange-50 border border-orange-200 px-2 py-0.5 rounded-full text-xs">
+                                  +{r.emergencyPay.toLocaleString()} ฿
+                                </span>
+                                <span className="text-[10px] text-stone-500">
+                                  {r.emergencyShiftsCount} กะฉุกเฉิน
+                                </span>
+                              </div>
+                            ) : (
+                              <span className="text-stone-400 text-xs">0 ฿</span>
                             )}
                           </td>
                           <td className="p-3 text-right">

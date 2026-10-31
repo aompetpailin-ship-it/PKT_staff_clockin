@@ -25,7 +25,8 @@ export function evaluateMonthlyDiligence(
   employmentType?: string,
   role?: string,
   totalShifts?: number,
-  firstActiveDateStr?: string | null
+  firstActiveDateStr?: string | null,
+  halfDayLeaveCount: number = 0
 ): DiligenceEvaluationResult {
   const isManager = role === 'MANAGER' || role === 'ADMIN';
   const targetAllowance = isManager ? 1000.0 : 500.0;
@@ -84,7 +85,20 @@ export function evaluateMonthlyDiligence(
       absentCount,
       isEligible: false,
       allowanceAmount: 0,
-      reason: `มีการลางาน ${leaveCount} วัน (ตัดสิทธิ์เบี้ยขยัน)`,
+      reason: `มีการลางานเต็มวัน ${leaveCount} วัน (ตัดสิทธิ์เบี้ยขยัน)`,
+    };
+  }
+
+  if (halfDayLeaveCount > 1) {
+    return {
+      employeeId,
+      monthYear,
+      lateCount,
+      leaveCount,
+      absentCount,
+      isEligible: false,
+      allowanceAmount: 0,
+      reason: `ลาครึ่งวัน ${halfDayLeaveCount} ครั้ง เกินโควตาที่อนุโลม (อนุโลมได้ไม่เกิน 1 ครั้ง/เดือน)`,
     };
   }
 
@@ -101,6 +115,8 @@ export function evaluateMonthlyDiligence(
     };
   }
 
+  const halfDayNote = halfDayLeaveCount === 1 ? ' (อนุโลมลาครึ่งวัน 1 ครั้ง)' : '';
+
   return {
     employeeId,
     monthYear,
@@ -109,6 +125,6 @@ export function evaluateMonthlyDiligence(
     absentCount,
     isEligible: true,
     allowanceAmount: targetAllowance,
-    reason: `ผ่านเกณฑ์เบี้ยขยันประจำเดือน (${isManager ? 'Manager +1,000฿' : '+500฿'}, มาสาย ${lateCount} ครั้ง, ไม่ขาด ไม่ลา)`,
+    reason: `ผ่านเกณฑ์เบี้ยขยันประจำเดือน (${isManager ? 'Manager +1,000฿' : '+500฿'}, มาสาย ${lateCount} ครั้ง, ไม่ขาด ไม่ลาเต็มวัน${halfDayNote})`,
   };
 }

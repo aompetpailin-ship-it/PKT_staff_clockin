@@ -87,6 +87,16 @@ export async function POST(request: Request) {
       },
     });
 
+    // Also check leaves on this date to identify half-day leaves
+    const leavesOnDate = await prisma.leaveRecord.findMany({
+      where: { dateStr },
+    });
+    const halfDayLeaveEmpIds = new Set(
+      leavesOnDate
+        .filter((l) => l.leaveType === 'HALF_DAY_MORNING' || l.leaveType === 'HALF_DAY_AFTERNOON' || l.leaveType?.includes('HALF_DAY'))
+        .map((l) => l.employeeId)
+    );
+
     // Unique employees who worked today
     const employeeMap = new Map();
     for (const att of attendances) {
@@ -95,9 +105,25 @@ export async function POST(request: Request) {
       }
     }
     const workingEmployees = Array.from(employeeMap.values());
-    const fullTimeEmployees = workingEmployees.filter(
-      (emp) => emp.employmentType !== 'PART_TIME'
-    );
+
+    // Unique employees who worked full shift (exclude half-day leaves and emergency cover shifts from bonus)
+    const fullTimeEmployees: any[] = [];
+    for (const att of attendances) {
+      if (att.employee.employmentType === 'PART_TIME') continue;
+      const isHalfDay =
+        att.status === 'COVER_SHIFT' ||
+        att.status === 'HALF_DAY' ||
+        halfDayLeaveEmpIds.has(att.employeeId) ||
+        att.notes?.includes('ฉุกเฉิน') ||
+        att.notes?.includes('เข้ากะแทน') ||
+        att.notes?.includes('มาบ่าย');
+
+      if (!isHalfDay) {
+        if (!fullTimeEmployees.some((e) => e.id === att.employeeId)) {
+          fullTimeEmployees.push(att.employee);
+        }
+      }
+    }
     const autoFullTimeStaffCount = fullTimeEmployees.length;
     const fullTimeStaffCount =
       dailySales.staffCountOverride !== null && dailySales.staffCountOverride !== undefined
