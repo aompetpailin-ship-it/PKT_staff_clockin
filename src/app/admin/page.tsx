@@ -377,16 +377,18 @@ function AdminDashboardContent() {
       alert('ไม่มีข้อมูลสำหรับส่งออก');
       return;
     }
-    const headers = ['ชื่อ-นามสกุล', 'ชื่อเล่น', 'สาขาประจำ', 'ประเภทจ้างงาน', 'โบนัสยอดขาย (บาท)', 'เบี้ยขยัน (บาท)', 'หักหยุดเสาร์อาทิตย์ (บาท)', 'ยอดจ่ายสุทธิ (บาท)'];
+    const headers = ['ชื่อ-นามสกุล', 'ชื่อเล่น', 'สาขาประจำ', 'ประเภทจ้างงาน', 'จำนวนกะเข้างาน', 'เบี้ยขยัน (บาท)', 'โบนัสยอดขาย (บาท)', 'รวมรับเงินพิเศษ (บาท)', 'หักหยุดเสาร์อาทิตย์ (บาท)', 'ยอดจ่ายสุทธิ (บาท)'];
     const rows = payrollData.map((r) => [
       `"${r.employee.fullName}"`,
       `"${r.employee.nickname || ''}"`,
       `"${r.homeBranchName}"`,
       `"${r.employee.employmentType === 'PART_TIME' ? 'Part-Time' : 'Full-Time'}"`,
-      r.bonusAmount,
-      r.diligenceAmount,
-      r.totalWeekendDeduction,
-      r.totalNetPay,
+      r.shiftsCount || 0,
+      r.diligenceAmount || 0,
+      r.bonusAmount || 0,
+      r.totalExtraPay || 0,
+      r.totalWeekendDeduction || 0,
+      r.totalNetPay || 0,
     ]);
     const csvContent = 'data:text/csv;charset=utf-8,\uFEFF' + [headers.join(','), ...rows.map((e) => e.join(','))].join('\n');
     const encodedUri = encodeURI(csvContent);
@@ -3241,11 +3243,13 @@ function AdminDashboardContent() {
           return {
             employee: emp,
             homeBranchName: emp.homeBranch?.name || '-',
+            shiftsCount: empLogs.length,
             bonusAmount,
             bonusDaysCount: bonusDetails.length,
             bonusDetails,
             diligenceAmount,
             diligenceStatus,
+            totalExtraPay: bonusAmount + diligenceAmount,
             totalDaysOff,
             weekdayDaysOffCount,
             weekendDaysOffCount,
@@ -3273,21 +3277,30 @@ function AdminDashboardContent() {
           return true;
         });
 
-        const totalBonusAll = filteredPayroll.reduce((sum, r) => sum + r.bonusAmount, 0);
-        const totalDiligenceAll = filteredPayroll.reduce((sum, r) => sum + r.diligenceAmount, 0);
-        const totalWeekendDeductionAll = filteredPayroll.reduce((sum, r) => sum + r.totalWeekendDeduction, 0);
-        const grandTotalNet = totalBonusAll + totalDiligenceAll - totalWeekendDeductionAll;
+        // Separate Full-Time and Part-Time
+        const fullTimePayroll = filteredPayroll.filter((r) => r.employee.employmentType !== 'PART_TIME');
+        const partTimePayroll = filteredPayroll.filter((r) => r.employee.employmentType === 'PART_TIME');
+
+        const totalBonusAll = fullTimePayroll.reduce((sum, r) => sum + r.bonusAmount, 0);
+        const totalDiligenceAll = fullTimePayroll.reduce((sum, r) => sum + r.diligenceAmount, 0);
+        const totalExtraAll = fullTimePayroll.reduce((sum, r) => sum + r.totalExtraPay, 0);
+        const totalWeekendDeductionAll = fullTimePayroll.reduce((sum, r) => sum + r.totalWeekendDeduction, 0);
+        const grandTotalNet = fullTimePayroll.reduce((sum, r) => sum + r.totalNetPay, 0);
 
         return (
           <div className="space-y-6">
+            {/* 1. FULL-TIME STAFF PAYROLL & EXTRA INCOME TABLE */}
             <div className="bg-[#FCFAF7] p-5 rounded-3xl border border-[#EBE4D8] shadow-xs space-y-4">
               <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div>
                   <h2 className="font-extrabold text-base text-stone-900 flex items-center gap-2">
-                    <span>💵 สรุปยอดจ่ายรวม (โบนัส + เบี้ยขยัน - หักหยุดเสาร์อาทิตย์) ประจำเดือน {formatThaiMonth(selectedMonthYear)}</span>
+                    <span>💵 สรุปยอดจ่ายรวม & เงินพิเศษพนักงานประจำ (Full-Time Staff)</span>
+                    <span className="bg-emerald-100 text-emerald-900 border border-emerald-300 text-xs font-bold px-2.5 py-0.5 rounded-full">
+                      {fullTimePayroll.length} คน
+                    </span>
                   </h2>
                   <p className="text-xs text-stone-500 mt-0.5">
-                    รวมยอดเงินพิเศษ • <span className="font-bold text-emerald-700">โบนัสยอดขาย</span> • <span className="font-bold text-[#F97316]">เบี้ยขยัน (+500฿)</span> • <span className="font-bold text-red-600">หักหยุดเสาร์-อาทิตย์ (-500฿/วัน)</span> (วันหยุดธรรมดาไม่หักเงิน)
+                    สรุปจำนวนกะเข้างาน • <span className="font-bold text-[#F97316]">เบี้ยขยัน (+500฿)</span> • <span className="font-bold text-emerald-700">โบนัสยอดขาย</span> • <span className="font-bold text-red-600">หักหยุด ส.-อา. (-500฿/วัน)</span> ประจำเดือน {formatThaiMonth(selectedMonthYear)}
                   </p>
                   <div className="flex items-center gap-1.5 flex-wrap pt-1 text-[11px] font-semibold text-stone-600">
                     <span>รหัสสีสาขาที่ทำโบนัส:</span>
@@ -3298,117 +3311,163 @@ function AdminDashboardContent() {
                   </div>
                 </div>
 
-                {/* MONTH & BRANCH FILTER DROPDOWNS */}
+                {/* MONTH, BRANCH & SEARCH CONTROLS */}
                 <div className="flex items-center gap-2 flex-wrap">
-                  <label className="text-xs font-bold text-stone-700 whitespace-nowrap">📅 ประจำเดือน:</label>
-                  <select
-                    value={selectedMonthYear}
-                    onChange={(e) => setSelectedMonthYear(e.target.value)}
-                    className="p-2.5 bg-white border border-[#E5DDD4] rounded-2xl text-xs font-bold text-[#F97316] focus:ring-2 focus:ring-[#F97316] outline-none cursor-pointer"
-                  >
-                    {allMonthOptions.map((opt) => (
-                      <option key={opt.value} value={opt.value}>
-                        {opt.label}
-                      </option>
-                    ))}
-                  </select>
+                  <div className="flex items-center gap-1">
+                    <label className="text-xs font-bold text-stone-700 whitespace-nowrap">📅 เดือน:</label>
+                    <select
+                      value={selectedMonthYear}
+                      onChange={(e) => setSelectedMonthYear(e.target.value)}
+                      className="p-2.5 bg-white border border-[#E5DDD4] rounded-2xl text-xs font-bold text-[#F97316] focus:ring-2 focus:ring-[#F97316] outline-none cursor-pointer"
+                    >
+                      {allMonthOptions.map((opt) => (
+                        <option key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
 
-                  <label className="text-xs font-bold text-stone-700 whitespace-nowrap">🏬 กรองสาขาประจำ:</label>
-                  <select
-                    value={selectedPayrollBranchId}
-                    onChange={(e) => setSelectedPayrollBranchId(e.target.value)}
-                    className="p-2.5 bg-white border border-[#E5DDD4] rounded-2xl text-xs font-bold text-[#F97316] focus:ring-2 focus:ring-[#F97316] outline-none cursor-pointer"
-                  >
-                    <option value="ALL">🌐 ทั้งหมดทุกสาขา ({employees.length} คน)</option>
-                    {branches.map((b) => (
-                      <option key={b.id} value={b.id}>
-                        🏬 {b.name} ({b.code})
-                      </option>
-                    ))}
-                  </select>
+                  <div className="flex items-center gap-1">
+                    <label className="text-xs font-bold text-stone-700 whitespace-nowrap">🏬 ค้นหาตามสาขา:</label>
+                    <select
+                      value={selectedPayrollBranchId}
+                      onChange={(e) => setSelectedPayrollBranchId(e.target.value)}
+                      className="p-2.5 bg-white border border-[#E5DDD4] rounded-2xl text-xs font-bold text-[#F97316] focus:ring-2 focus:ring-[#F97316] outline-none cursor-pointer"
+                    >
+                      <option value="ALL">🌐 ทั้งหมดทุกสาขา ({employees.length} คน)</option>
+                      {branches.map((b) => (
+                        <option key={b.id} value={b.id}>
+                          🏬 {b.name} ({b.code})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="flex items-center gap-1">
+                    <label className="text-xs font-bold text-stone-700 whitespace-nowrap">🔍 ค้นหาชื่อ:</label>
+                    <div className="relative">
+                      <input
+                        type="text"
+                        placeholder="ค้นหาชื่อ / ชื่อเล่น..."
+                        value={globalSearchTerm}
+                        onChange={(e) => setGlobalSearchTerm(e.target.value)}
+                        className="p-2 bg-white border border-[#E5DDD4] rounded-2xl text-xs text-stone-900 outline-none focus:ring-2 focus:ring-[#F97316] w-36 pr-6"
+                      />
+                      {globalSearchTerm && (
+                        <button
+                          onClick={() => setGlobalSearchTerm('')}
+                          className="absolute right-2 top-2.5 text-stone-400 hover:text-stone-600 text-xs font-bold"
+                        >
+                          ✕
+                        </button>
+                      )}
+                    </div>
+                  </div>
 
                   <button
                     onClick={() => setShowBonusRuleModal(true)}
                     className="p-2.5 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-2xl text-xs font-extrabold text-amber-900 transition flex items-center gap-1 cursor-pointer"
                   >
                     <span>ℹ️</span>
-                    <span>เกณฑ์เงื่อนไขโบนัส</span>
+                    <span>เกณฑ์โบนัส</span>
                   </button>
 
                   <button
-                    onClick={() => exportPayrollToCsv(filteredPayroll, selectedMonthYear)}
+                    onClick={() => exportPayrollToCsv(fullTimePayroll, selectedMonthYear)}
                     className="p-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl text-xs font-black shadow-sm transition flex items-center gap-1.5 cursor-pointer active:scale-95"
                     title="ดาวน์โหลดไฟล์สำหรับนำเข้า Excel หรือส่งฝ่ายบัญชี"
                   >
                     <span>📥</span>
-                    <span>ส่งออก Excel / CSV ({filteredPayroll.length})</span>
+                    <span>ส่งออก Excel ({fullTimePayroll.length})</span>
                   </button>
                 </div>
               </div>
 
-              {/* OVERVIEW STAT CARDS */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 pt-2 border-t border-[#EBE4D8]">
+              {/* OVERVIEW STAT CARDS (FULL-TIME) */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3 pt-2 border-t border-[#EBE4D8]">
                 <div className="bg-[#D8F3E5] p-3.5 rounded-2xl border border-[#B6E7CE] space-y-1">
                   <p className="text-[11px] font-bold text-[#14533C]">💰 โบนัสยอดขายรวม</p>
                   <p className="text-xl font-black text-[#14533C]">+{totalBonusAll.toLocaleString()} ฿</p>
                 </div>
                 <div className="bg-[#FCE5CD] p-3.5 rounded-2xl border border-[#F9D3AD] space-y-1">
-                  <p className="text-[11px] font-bold text-[#783E10]">🏆 เบี้ยขยันรวม (Full-Time)</p>
+                  <p className="text-[11px] font-bold text-[#783E10]">🏆 เบี้ยขยันรวม</p>
                   <p className="text-xl font-black text-[#783E10]">+{totalDiligenceAll.toLocaleString()} ฿</p>
                 </div>
+                <div className="bg-orange-50 p-3.5 rounded-2xl border border-orange-200 space-y-1">
+                  <p className="text-[11px] font-bold text-[#F97316]">✨ รวมเงินพิเศษทั้งหมด</p>
+                  <p className="text-xl font-black text-[#F97316]">+{totalExtraAll.toLocaleString()} ฿</p>
+                </div>
                 <div className="bg-[#FCDAD7] p-3.5 rounded-2xl border border-[#F8B7B2] space-y-1">
-                  <p className="text-[11px] font-bold text-[#802227]">🛑 หักหยุดเสาร์-อาทิตย์ (-500฿/วัน)</p>
+                  <p className="text-[11px] font-bold text-[#802227]">🛑 หักหยุด ส.-อา. (-500฿)</p>
                   <p className="text-xl font-black text-[#802227]">-{totalWeekendDeductionAll.toLocaleString()} ฿</p>
                 </div>
-                <div className="bg-[#2D2A26] text-white p-3.5 rounded-2xl shadow-xs space-y-1">
-                  <p className="text-[11px] font-bold text-stone-300">💵 ยอดรวมที่ต้องทำจ่ายสุทธิ</p>
-                  <p className="text-xl font-black text-white">
+                <div className="bg-[#2D2A26] text-white p-3.5 rounded-2xl shadow-xs space-y-1 col-span-2 sm:col-span-1">
+                  <p className="text-[11px] font-bold text-stone-300">💵 ยอดจ่ายสุทธิรวม</p>
+                  <p className="text-xl font-black text-amber-400">
                     {grandTotalNet >= 0 ? `+${grandTotalNet.toLocaleString()}` : `${grandTotalNet.toLocaleString()}`} ฿
                   </p>
                 </div>
               </div>
 
-              {/* PAYROLL BREAKDOWN TABLE */}
+              {/* FULL-TIME PAYROLL BREAKDOWN TABLE */}
               <div className="overflow-x-auto rounded-2xl border border-[#EBE4D8]">
                 <table className="w-full text-left text-xs border-collapse">
                   <thead>
                     <tr className="bg-[#F5EFEA] text-stone-800 font-bold border-b border-[#EBE4D8]">
-                      <th className="p-3">ชื่อ-นามสกุล พนักงาน</th>
                       <th className="p-3">สาขาประจำ</th>
-                      <th className="p-3 text-right">โบนัสยอดขาย (รวมทุกสาขา)</th>
+                      <th className="p-3">พนักงาน (ชื่อเล่น)</th>
+                      <th className="p-3 text-center">จำนวนกะเข้างาน</th>
                       <th className="p-3 text-right">เบี้ยขยัน</th>
-                      <th className="p-3">วันหยุดประจำเดือน (รายละเอียด)</th>
+                      <th className="p-3 text-right">โบนัสยอดขาย</th>
+                      <th className="p-3 text-right text-[#F97316]">รวมรับเงินพิเศษ</th>
+                      <th className="p-3">วันหยุดประจำเดือน</th>
                       <th className="p-3 text-right text-red-600">หักหยุด ส.-อา.</th>
                       <th className="p-3 text-right">ยอดจ่ายสุทธิรวม</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[#EBE4D8] bg-white">
-                    {filteredPayroll.length === 0 ? (
+                    {fullTimePayroll.length === 0 ? (
                       <tr>
-                        <td colSpan={7} className="p-4 text-center text-stone-400 italic">
-                          ไม่พบข้อมูลพนักงาน ณ สาขาที่เลือก
+                        <td colSpan={9} className="p-6 text-center text-stone-400 italic">
+                          ไม่พบข้อมูลพนักงาน Full-Time ตามเงื่อนไขหรือสาขาที่เลือก
                         </td>
                       </tr>
                     ) : (
-                      filteredPayroll.map((r) => (
+                      fullTimePayroll.map((r) => (
                         <tr key={r.employee.id} className="hover:bg-[#FAF5EF] transition-colors">
+                          <td className="p-3 font-bold text-stone-800">
+                            🏬 {r.homeBranchName}
+                          </td>
                           <td className="p-3">
                             <div className="flex flex-col">
-                              <span
-                                className={`font-extrabold text-xs ${
-                                  r.employee.employmentType === 'PART_TIME'
-                                    ? 'text-[#F97316]'
-                                    : 'text-stone-900'
-                                }`}
-                              >
+                              <span className="font-extrabold text-xs text-stone-900">
                                 {r.employee.fullName} ({r.employee.nickname || 'พนักงาน'})
                               </span>
-                              <span className="text-[10px] text-stone-500 font-semibold">
-                                {r.employee.employmentType === 'PART_TIME' ? '⏳ Part-Time' : '💼 Full-Time'}
+                              <span className="text-[10px] text-stone-400 font-mono">
+                                {r.employee.phone || r.employee.lineUserId || ''}
                               </span>
                             </div>
                           </td>
-                          <td className="p-3 text-stone-600 font-semibold">{r.homeBranchName}</td>
+                          <td className="p-3 text-center">
+                            <span className="font-extrabold text-stone-900 bg-stone-100 border border-stone-200 px-2.5 py-1 rounded-full text-xs">
+                              {r.shiftsCount} กะ
+                            </span>
+                          </td>
+                          <td className="p-3 text-right font-mono font-bold">
+                            {r.diligenceAmount > 0 ? (
+                              <span className="text-emerald-700 font-extrabold bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-full text-xs">
+                                🎉 +500 ฿
+                              </span>
+                            ) : (
+                              <div className="flex flex-col items-end">
+                                <span className="text-stone-400 font-semibold text-xs">0 ฿</span>
+                                <span className="text-[10px] text-stone-500 max-w-[130px] truncate" title={r.diligenceStatus}>
+                                  {r.diligenceStatus}
+                                </span>
+                              </div>
+                            )}
+                          </td>
                           <td className="p-3 text-right">
                             {r.bonusAmount > 0 ? (
                               <div className="flex flex-col items-end space-y-1">
@@ -3419,7 +3478,7 @@ function AdminDashboardContent() {
                                   ได้รับ {r.bonusDaysCount} วัน
                                 </span>
                                 {r.bonusDetails && r.bonusDetails.length > 0 && (
-                                  <div className="flex flex-wrap justify-end gap-1 max-w-[220px] pt-0.5">
+                                  <div className="flex flex-wrap justify-end gap-1 max-w-[200px] pt-0.5">
                                     {r.bonusDetails.map((b: any, bIdx: number) => {
                                       const bCode = (b.branchCode || 'B').toUpperCase();
                                       let badgeStyle = 'bg-emerald-100 text-emerald-900 border-emerald-300';
@@ -3433,7 +3492,7 @@ function AdminDashboardContent() {
                                           className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded border whitespace-nowrap ${badgeStyle}`}
                                           title={`วันที่ ${b.dateStr} (${b.branchName}): ยอดขาย ${b.totalSales.toLocaleString()}฿`}
                                         >
-                                          {b.dateStr.slice(8)}/{b.dateStr.slice(5, 7)} ({b.branchCode || 'B'}): +{b.amount}฿
+                                          {b.dateStr.slice(8)}/{b.dateStr.slice(5, 7)}: +{b.amount}฿
                                         </span>
                                       );
                                     })}
@@ -3447,12 +3506,10 @@ function AdminDashboardContent() {
                               </div>
                             )}
                           </td>
-                          <td className="p-3 text-right font-mono font-bold text-[#783E10]">
-                            {r.diligenceAmount > 0 ? (
-                              <span className="text-emerald-700 font-extrabold">+500 ฿</span>
-                            ) : (
-                              <span className="text-stone-400 font-normal">0 ฿</span>
-                            )}
+                          <td className="p-3 text-right">
+                            <span className="font-mono font-black text-xs text-[#F97316] bg-orange-50 px-2.5 py-1 rounded-xl border border-orange-200 shadow-xs">
+                              +{r.totalExtraPay.toLocaleString()} ฿
+                            </span>
                           </td>
                           <td className="p-3 text-stone-700">
                             <div className="space-y-1">
@@ -3478,7 +3535,7 @@ function AdminDashboardContent() {
                                       }`}
                                       title={`${day.dateStr} (${day.dayName}): ${day.reason}`}
                                     >
-                                      {day.dateStr.slice(8)} ({day.dayName}) {day.isWeekend ? '🛑 หัก 500฿' : '🟢 หยุดประจำสัปดาห์'}
+                                      {day.dateStr.slice(8)} ({day.dayName}) {day.isWeekend ? '🛑 หัก 500฿' : '🟢 หยุด'}
                                     </span>
                                   ))}
                                 </div>
@@ -3507,19 +3564,32 @@ function AdminDashboardContent() {
               </div>
             </div>
 
-            {/* PART-TIME STAFF PAYROLL & HOURS SUMMARY */}
+            {/* 2. DEDICATED PART-TIME STAFF PAYROLL & DAILY HOURS TABLE */}
             {(() => {
               const ptStaffList = employees.filter(
                 (emp) => emp.employmentType === 'PART_TIME' || emp.role === 'PART_TIME'
               );
 
               const filteredPt = ptStaffList.filter((emp) => {
-                if (selectedPayrollBranchId === 'ALL') return true;
-                return (
-                  emp.homeBranchId === selectedPayrollBranchId ||
-                  emp.homeBranch?.id === selectedPayrollBranchId
-                );
+                if (selectedPayrollBranchId !== 'ALL') {
+                  const matchesBranch = (
+                    emp.homeBranchId === selectedPayrollBranchId ||
+                    emp.homeBranch?.id === selectedPayrollBranchId
+                  );
+                  if (!matchesBranch) return false;
+                }
+                if (globalSearchTerm && globalSearchTerm.trim()) {
+                  const q = globalSearchTerm.trim().toLowerCase();
+                  const matchName = emp.fullName?.toLowerCase().includes(q);
+                  const matchNick = emp.nickname?.toLowerCase().includes(q);
+                  const matchBranch = emp.homeBranch?.name?.toLowerCase().includes(q);
+                  if (!matchName && !matchNick && !matchBranch) return false;
+                }
+                return true;
               });
+
+              // Build comprehensive daily shifts logs for Part-Time
+              const allPtShiftsList: any[] = [];
 
               const ptSummary = filteredPt.map((emp) => {
                 const empLogs = attendanceLogs
@@ -3528,24 +3598,47 @@ function AdminDashboardContent() {
 
                 let totalHours = 0;
                 const shifts = empLogs.map((l) => {
-                  let hours = 8;
+                  let hoursDecimal = 0;
+                  let durationStr = '0 ชม.';
                   if (l.clockInAt && l.clockOutAt) {
                     const diffMs = new Date(l.clockOutAt).getTime() - new Date(l.clockInAt).getTime();
                     if (!isNaN(diffMs) && diffMs > 0) {
-                      hours = Math.round((diffMs / (1000 * 60 * 60)) * 10) / 10;
+                      hoursDecimal = Math.round((diffMs / (1000 * 60 * 60)) * 100) / 100;
+                      const totalMin = Math.floor(diffMs / (1000 * 60));
+                      const h = Math.floor(totalMin / 60);
+                      const m = totalMin % 60;
+                      durationStr = `${h} ชม. ${m} นาที`;
                     }
+                  } else if (l.clockInAt) {
+                    hoursDecimal = 8;
+                    durationStr = '8 ชม. (ค่าเริ่มต้น)';
                   }
-                  totalHours += hours;
-                  return {
+                  totalHours += hoursDecimal;
+
+                  const shiftPay =
+                    partTimePayType === 'SHIFT'
+                      ? partTimeShiftRate
+                      : Math.round(hoursDecimal * partTimeHourlyRate);
+
+                  const shiftItem = {
                     id: l.id,
+                    employeeId: emp.id,
+                    employeeName: emp.fullName,
+                    employeeNickname: emp.nickname || 'พาร์ทไทม์',
                     dateStr: l.dateStr,
-                    branchName: l.branch?.name || 'N/A',
-                    branchCode: l.branch?.code || 'N/A',
-                    clockInAt: l.clockInAt ? new Date(l.clockInAt).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }) : '-',
-                    clockOutAt: l.clockOutAt ? new Date(l.clockOutAt).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }) : 'ยังไม่ลงออก',
-                    hours,
+                    branchName: l.branch?.name || emp.homeBranch?.name || 'N/A',
+                    branchCode: l.branch?.code || emp.homeBranch?.code || 'N/A',
+                    clockInAt: l.clockInAt ? new Date(l.clockInAt).toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '-',
+                    clockOutAt: l.clockOutAt ? new Date(l.clockOutAt).toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit', second: '2-digit' }) : 'ยังไม่ลงออก',
+                    hoursDecimal,
+                    durationStr,
+                    shiftPay,
                     status: l.status,
+                    notes: l.notes,
                   };
+
+                  allPtShiftsList.push(shiftItem);
+                  return shiftItem;
                 });
 
                 const shiftsCount = empLogs.length;
@@ -3558,46 +3651,38 @@ function AdminDashboardContent() {
                   employee: emp,
                   homeBranchName: emp.homeBranch?.name || '-',
                   shiftsCount,
-                  totalHours: Math.round(totalHours * 10) / 10,
+                  totalHours: Math.round(totalHours * 100) / 100,
                   totalPay,
                   shifts,
                 };
               });
+
+              allPtShiftsList.sort((a, b) => a.dateStr.localeCompare(b.dateStr));
 
               const totalPtShiftsAll = ptSummary.reduce((sum, p) => sum + p.shiftsCount, 0);
               const totalPtHoursAll = ptSummary.reduce((sum, p) => sum + p.totalHours, 0);
               const grandTotalPtPay = ptSummary.reduce((sum, p) => sum + p.totalPay, 0);
 
               return (
-                <div className="bg-[#FCFAF7] p-5 rounded-3xl border border-[#EBE4D8] shadow-xs space-y-4">
-                  <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                <div className="bg-[#FCFAF7] p-5 rounded-3xl border border-[#EBE4D8] shadow-xs space-y-5">
+                  {/* HEADER & RATE CONTROLS */}
+                  <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-4 rounded-2xl border border-[#EBE4D8]">
                     <div>
                       <h3 className="font-extrabold text-base text-stone-900 flex items-center gap-2">
-                        <span>⏳ สรุปการทำงาน & สรุปยอดจ่ายพนักงานพาร์ทไทม์ (Part-Time Staff)</span>
+                        <span>⏳ ตารางสรุปการเข้างาน & ยอดจ่ายพนักงานพาร์ทไทม์ (Part-Time Staff)</span>
                         <span className="bg-amber-100 text-amber-900 border border-amber-300 text-xs font-bold px-2.5 py-0.5 rounded-full">
                           {ptSummary.length} คน
                         </span>
                       </h3>
                       <p className="text-xs text-stone-500 mt-0.5">
-                        คำนวณตามจำนวนกะและชั่วโมงเข้างานจริง เพื่อทำจ่ายค่าจ้างพาร์ทไทม์ตอนสิ้นเดือนได้สะดวกรวดเร็ว
+                        คำนวณชั่วโมงทำงานรายวันและยอดค่าจ้างสุทธิ สามารถเลือกคิดแบบ <strong>รายกะ</strong> หรือ <strong>รายชั่วโมง</strong> ได้ทันที
                       </p>
                     </div>
 
                     {/* INTERACTIVE RATE CONTROLS */}
-                    <div className="flex items-center gap-3 flex-wrap bg-white p-2 rounded-2xl border border-[#E5DDD4] shadow-xs text-xs">
+                    <div className="flex items-center gap-3 flex-wrap bg-[#F5EFEA] p-2 rounded-2xl border border-[#E5DDD4] shadow-xs text-xs">
                       <span className="font-bold text-stone-700">⚙️ รูปแบบคำนวณ:</span>
-                      <div className="flex items-center gap-1 bg-stone-100 p-1 rounded-xl">
-                        <button
-                          type="button"
-                          onClick={() => setPartTimePayType('SHIFT')}
-                          className={`px-3 py-1 rounded-lg font-bold transition cursor-pointer ${
-                            partTimePayType === 'SHIFT'
-                              ? 'bg-[#2D2A26] text-white shadow-xs'
-                              : 'text-stone-600 hover:text-stone-900'
-                          }`}
-                        >
-                          🏷️ จ่ายตามกะ (บาท/กะ)
-                        </button>
+                      <div className="flex items-center gap-1 bg-white p-1 rounded-xl border border-[#E5DDD4]">
                         <button
                           type="button"
                           onClick={() => setPartTimePayType('HOURLY')}
@@ -3609,23 +3694,21 @@ function AdminDashboardContent() {
                         >
                           ⏱️ จ่ายตามชั่วโมง (บาท/ชม.)
                         </button>
+                        <button
+                          type="button"
+                          onClick={() => setPartTimePayType('SHIFT')}
+                          className={`px-3 py-1 rounded-lg font-bold transition cursor-pointer ${
+                            partTimePayType === 'SHIFT'
+                              ? 'bg-[#2D2A26] text-white shadow-xs'
+                              : 'text-stone-600 hover:text-stone-900'
+                          }`}
+                        >
+                          🏷️ จ่ายตามกะ (บาท/กะ)
+                        </button>
                       </div>
 
-                      {partTimePayType === 'SHIFT' ? (
-                        <div className="flex items-center gap-1.5">
-                          <label className="font-semibold text-stone-600">อัตราต่อกะ:</label>
-                          <input
-                            type="number"
-                            min="0"
-                            step="10"
-                            value={partTimeShiftRate}
-                            onChange={(e) => setPartTimeShiftRate(Number(e.target.value) || 0)}
-                            className="w-20 p-1 bg-stone-50 border border-stone-300 rounded-lg text-center font-bold text-amber-900"
-                          />
-                          <span className="font-bold text-stone-600">฿</span>
-                        </div>
-                      ) : (
-                        <div className="flex items-center gap-1.5">
+                      {partTimePayType === 'HOURLY' ? (
+                        <div className="flex items-center gap-1.5 bg-white px-2.5 py-1 rounded-xl border border-[#E5DDD4]">
                           <label className="font-semibold text-stone-600">อัตราต่อชั่วโมง:</label>
                           <input
                             type="number"
@@ -3633,7 +3716,20 @@ function AdminDashboardContent() {
                             step="5"
                             value={partTimeHourlyRate}
                             onChange={(e) => setPartTimeHourlyRate(Number(e.target.value) || 0)}
-                            className="w-20 p-1 bg-stone-50 border border-stone-300 rounded-lg text-center font-bold text-amber-900"
+                            className="w-16 p-1 bg-amber-50 border border-amber-300 rounded-lg text-center font-bold text-amber-900 outline-none"
+                          />
+                          <span className="font-bold text-stone-600">฿</span>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-1.5 bg-white px-2.5 py-1 rounded-xl border border-[#E5DDD4]">
+                          <label className="font-semibold text-stone-600">อัตราต่อกะ:</label>
+                          <input
+                            type="number"
+                            min="0"
+                            step="10"
+                            value={partTimeShiftRate}
+                            onChange={(e) => setPartTimeShiftRate(Number(e.target.value) || 0)}
+                            className="w-20 p-1 bg-amber-50 border border-amber-300 rounded-lg text-center font-bold text-amber-900 outline-none"
                           />
                           <span className="font-bold text-stone-600">฿</span>
                         </div>
@@ -3642,14 +3738,14 @@ function AdminDashboardContent() {
                   </div>
 
                   {/* PART TIME STAT CARDS */}
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t border-[#EBE4D8]">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     <div className="bg-amber-50 p-3.5 rounded-2xl border border-amber-200 space-y-1">
                       <p className="text-[11px] font-bold text-amber-800">📅 กะทำงานพาร์ทไทม์รวม</p>
                       <p className="text-xl font-black text-amber-950">{totalPtShiftsAll} กะ</p>
                     </div>
                     <div className="bg-sky-50 p-3.5 rounded-2xl border border-sky-200 space-y-1">
                       <p className="text-[11px] font-bold text-sky-800">⏱️ ชั่วโมงทำงานจริงรวม</p>
-                      <p className="text-xl font-black text-sky-950">{Math.round(totalPtHoursAll * 10) / 10} ชั่วโมง</p>
+                      <p className="text-xl font-black text-sky-950">{Math.round(totalPtHoursAll * 100) / 100} ชั่วโมง</p>
                     </div>
                     <div className="bg-[#2D2A26] text-white p-3.5 rounded-2xl shadow-xs space-y-1">
                       <p className="text-[11px] font-bold text-stone-300">💰 ยอดค่าจ้างพาร์ทไทม์รวมที่ต้องจ่าย</p>
@@ -3657,84 +3753,142 @@ function AdminDashboardContent() {
                     </div>
                   </div>
 
-                  {/* PART TIME TABLE */}
-                  <div className="overflow-x-auto rounded-2xl border border-[#EBE4D8]">
-                    <table className="w-full text-left text-xs border-collapse">
-                      <thead>
-                        <tr className="bg-[#F5EFEA] text-stone-800 font-bold border-b border-[#EBE4D8]">
-                          <th className="p-3">ชื่อ-นามสกุล (พนักงานพาร์ทไทม์)</th>
-                          <th className="p-3">สาขาประจำ</th>
-                          <th className="p-3 text-center">จำนวนกะที่เข้างาน</th>
-                          <th className="p-3 text-center">ชั่วโมงทำงานรวม</th>
-                          <th className="p-3 text-right">เรทค่าจ้างที่ใช้คิด</th>
-                          <th className="p-3 text-right">ยอดค่าจ้างสุทธิ</th>
-                          <th className="p-3">รายละเอียดกะเข้างานในเดือน</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-[#EBE4D8] bg-white">
-                        {ptSummary.length === 0 ? (
-                          <tr>
-                            <td colSpan={7} className="p-4 text-center text-stone-400 italic">
-                              ไม่พบพนักงานพาร์ทไทม์ในสาขาและเดือนที่เลือก (สามารถเพิ่มตำแหน่งพาร์ทไทม์ได้ที่แท็บ "รายชื่อพนักงาน")
-                            </td>
+                  {/* SUBSECTION 1: SUMMARY PER EMPLOYEE */}
+                  <div className="space-y-2">
+                    <h4 className="font-bold text-xs text-stone-800 flex items-center gap-1.5">
+                      <span>👤 สรุปยอดจ่ายค่าจ้างรายบุคคล (Part-Time Summary)</span>
+                    </h4>
+                    <div className="overflow-x-auto rounded-2xl border border-[#EBE4D8]">
+                      <table className="w-full text-left text-xs border-collapse">
+                        <thead>
+                          <tr className="bg-[#F5EFEA] text-stone-800 font-bold border-b border-[#EBE4D8]">
+                            <th className="p-3">ชื่อ-นามสกุล พนักงานพาร์ทไทม์</th>
+                            <th className="p-3">สาขาประจำ</th>
+                            <th className="p-3 text-center">จำนวนกะที่เข้างาน</th>
+                            <th className="p-3 text-center">ชั่วโมงทำงานรวม</th>
+                            <th className="p-3 text-right">เรทค่าจ้างที่ใช้คิด</th>
+                            <th className="p-3 text-right">ยอดค่าจ้างสุทธิรวม</th>
                           </tr>
-                        ) : (
-                          ptSummary.map((pt) => (
-                            <tr key={pt.employee.id} className="hover:bg-[#FAF5EF] transition-colors">
-                              <td className="p-3 font-bold text-stone-900">
-                                <div className="flex items-center gap-2">
-                                  <span className="text-base">⏳</span>
-                                  <div>
-                                    <div className="font-extrabold text-stone-900">
-                                      {pt.employee.fullName} ({pt.employee.nickname || 'พาร์ทไทม์'})
-                                    </div>
-                                    <span className="text-[10px] text-stone-400 font-mono">
-                                      {pt.employee.phone || pt.employee.lineUserId}
-                                    </span>
-                                  </div>
-                                </div>
-                              </td>
-                              <td className="p-3 text-stone-600 font-semibold">{pt.homeBranchName}</td>
-                              <td className="p-3 text-center font-bold text-amber-900">
-                                <span className="bg-amber-100 text-amber-900 border border-amber-300 px-2.5 py-1 rounded-full text-xs font-black">
-                                  {pt.shiftsCount} กะ
-                                </span>
-                              </td>
-                              <td className="p-3 text-center font-mono font-bold text-sky-900">
-                                {pt.totalHours} ชม.
-                              </td>
-                              <td className="p-3 text-right font-mono text-stone-600">
-                                {partTimePayType === 'SHIFT'
-                                  ? `${partTimeShiftRate.toLocaleString()} ฿/กะ`
-                                  : `${partTimeHourlyRate.toLocaleString()} ฿/ชม.`}
-                              </td>
-                              <td className="p-3 text-right font-mono font-black text-sm text-emerald-700 bg-emerald-50/50">
-                                +{pt.totalPay.toLocaleString()} ฿
-                              </td>
-                              <td className="p-3">
-                                {pt.shifts.length === 0 ? (
-                                  <span className="text-stone-400 italic text-[11px]">ไม่มีประวัติเข้างานในเดือนนี้</span>
-                                ) : (
-                                  <div className="flex flex-wrap gap-1 max-w-sm">
-                                    {pt.shifts.map((s: any) => (
-                                      <span
-                                        key={s.id}
-                                        className="bg-stone-50 border border-stone-200 text-stone-800 text-[10px] font-semibold px-2 py-0.5 rounded-lg flex items-center gap-1"
-                                        title={`${s.dateStr} สาขา ${s.branchName} (${s.clockInAt} - ${s.clockOutAt}) = ${s.hours} ชม.`}
-                                      >
-                                        <span className="font-bold text-amber-900">{s.dateStr.slice(8)}/{s.dateStr.slice(5, 7)}</span>
-                                        <span className="text-stone-500 font-normal">({s.branchCode})</span>
-                                        <span className="font-mono text-emerald-700 font-bold">{s.hours}h</span>
-                                      </span>
-                                    ))}
-                                  </div>
-                                )}
+                        </thead>
+                        <tbody className="divide-y divide-[#EBE4D8] bg-white">
+                          {ptSummary.length === 0 ? (
+                            <tr>
+                              <td colSpan={6} className="p-4 text-center text-stone-400 italic">
+                                ไม่พบพนักงานพาร์ทไทม์ตามสาขาที่เลือก
                               </td>
                             </tr>
-                          ))
-                        )}
-                      </tbody>
-                    </table>
+                          ) : (
+                            ptSummary.map((pt) => (
+                              <tr key={pt.employee.id} className="hover:bg-[#FAF5EF] transition-colors">
+                                <td className="p-3 font-bold text-stone-900">
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-base">⏳</span>
+                                    <div>
+                                      <div className="font-extrabold text-stone-900">
+                                        {pt.employee.fullName} ({pt.employee.nickname || 'พาร์ทไทม์'})
+                                      </div>
+                                      <span className="text-[10px] text-stone-400 font-mono">
+                                        {pt.employee.phone || pt.employee.lineUserId}
+                                      </span>
+                                    </div>
+                                  </div>
+                                </td>
+                                <td className="p-3 text-stone-600 font-semibold">{pt.homeBranchName}</td>
+                                <td className="p-3 text-center font-bold text-amber-900">
+                                  <span className="bg-amber-100 text-amber-900 border border-amber-300 px-2.5 py-1 rounded-full text-xs font-black">
+                                    {pt.shiftsCount} กะ
+                                  </span>
+                                </td>
+                                <td className="p-3 text-center font-mono font-bold text-sky-900">
+                                  {pt.totalHours} ชม.
+                                </td>
+                                <td className="p-3 text-right font-mono text-stone-600">
+                                  {partTimePayType === 'SHIFT'
+                                    ? `${partTimeShiftRate.toLocaleString()} ฿/กะ`
+                                    : `${partTimeHourlyRate.toLocaleString()} ฿/ชม.`}
+                                </td>
+                                <td className="p-3 text-right font-mono font-black text-sm text-emerald-700 bg-emerald-50/50">
+                                  +{pt.totalPay.toLocaleString()} ฿
+                                </td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* SUBSECTION 2: DAILY ATTENDANCE & HOURS BREAKDOWN */}
+                  <div className="space-y-2">
+                    <h4 className="font-bold text-xs text-stone-800 flex items-center gap-1.5">
+                      <span>📅 รายละเอียดการเข้างานรายวันของพนักงานพาร์ทไทม์ (Daily Attendance & Hours Log)</span>
+                      <span className="text-[11px] text-stone-500 font-normal">
+                        (แสดงเวลาเข้า-ออก, จำนวนชั่วโมงต่อวัน และยอดเงินแต่ละวัน)
+                      </span>
+                    </h4>
+                    <div className="overflow-x-auto rounded-2xl border border-[#EBE4D8]">
+                      <table className="w-full text-left text-xs border-collapse">
+                        <thead>
+                          <tr className="bg-[#F5EFEA] text-stone-800 font-bold border-b border-[#EBE4D8]">
+                            <th className="p-3">วันที่เข้างาน</th>
+                            <th className="p-3">พนักงาน</th>
+                            <th className="p-3">สาขาที่เข้างาน</th>
+                            <th className="p-3">เวลาเข้างาน</th>
+                            <th className="p-3">เวลาออกงาน</th>
+                            <th className="p-3 text-center text-sky-900">ชั่วโมงทำงานจริง</th>
+                            <th className="p-3 text-right text-emerald-700">คิดเป็นเงิน</th>
+                            <th className="p-3">สถานะ / หมายเหตุ</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-[#EBE4D8] bg-white">
+                          {allPtShiftsList.length === 0 ? (
+                            <tr>
+                              <td colSpan={8} className="p-4 text-center text-stone-400 italic">
+                                ไม่มีประวัติการเข้างานของพนักงานพาร์ทไทม์ในเดือนนี้
+                              </td>
+                            </tr>
+                          ) : (
+                            allPtShiftsList.map((s, idx) => (
+                              <tr key={s.id || idx} className="hover:bg-[#FAF5EF] transition-colors">
+                                <td className="p-3 font-bold text-stone-900">
+                                  📅 {s.dateStr}
+                                </td>
+                                <td className="p-3 font-semibold text-stone-800">
+                                  {s.employeeName} ({s.employeeNickname})
+                                </td>
+                                <td className="p-3 font-bold text-[#F97316]">
+                                  🏬 {s.branchName} ({s.branchCode})
+                                </td>
+                                <td className="p-3 font-mono font-bold text-emerald-700">
+                                  🟢 {s.clockInAt} น.
+                                </td>
+                                <td className="p-3 font-mono font-bold text-stone-700">
+                                  🏁 {s.clockOutAt} น.
+                                </td>
+                                <td className="p-3 text-center">
+                                  <div className="inline-flex flex-col items-center">
+                                    <span className="bg-sky-50 text-sky-900 border border-sky-200 px-2.5 py-0.5 rounded-lg font-mono font-extrabold text-xs">
+                                      ⏱️ {s.durationStr}
+                                    </span>
+                                    <span className="text-[10px] text-stone-500 font-mono mt-0.5">
+                                      ({s.hoursDecimal} ชม.)
+                                    </span>
+                                  </div>
+                                </td>
+                                <td className="p-3 text-right">
+                                  <span className="font-mono font-black text-xs text-emerald-800 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200">
+                                    +{s.shiftPay.toLocaleString()} ฿
+                                  </span>
+                                </td>
+                                <td className="p-3 text-stone-600 text-[11px]">
+                                  {s.notes ? s.notes : <span className="text-stone-400 italic">กะพาร์ทไทม์ปกติ</span>}
+                                </td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
                 </div>
               );
