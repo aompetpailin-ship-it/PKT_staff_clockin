@@ -53,10 +53,11 @@ export async function POST(request: Request) {
       adminUser,
     } = body;
 
-    // Strict permission check: only admin 'aommyisme'
-    if (adminUser !== 'aommyisme') {
+    // Permission check: allow authenticated admin accounts
+    const normalizedAdmin = (adminUser || '').trim().toLowerCase();
+    if (!['aommyisme', 'pon'].includes(normalizedAdmin)) {
       return NextResponse.json(
-        { success: false, error: 'สิทธิ์ไม่เพียงพอ: การเพิ่มการเข้างานด้วยตนเองอนุญาตเฉพาะผู้จัดการคุณอ้อม (aommyisme) เท่านั้น' },
+        { success: false, error: 'สิทธิ์ไม่เพียงพอ: การเพิ่มการเข้างานด้วยตนเองอนุญาตเฉพาะผู้จัดการ (Admin) เท่านั้น' },
         { status: 403 }
       );
     }

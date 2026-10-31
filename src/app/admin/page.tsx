@@ -493,10 +493,23 @@ function AdminDashboardContent() {
     }
   };
 
+  const openAddAttendanceModal = (defaultEmpId?: string, defaultBranchId?: string, defaultDateStr?: string) => {
+    const emp = defaultEmpId ? employees.find((e) => e.id === defaultEmpId) : employees[0];
+    setAddAttEmpId(emp?.id || employees[0]?.id || '');
+    setAddAttBranchId(defaultBranchId || emp?.primaryBranchId || emp?.homeBranchId || branches[0]?.id || '');
+    setAddAttDateStr(defaultDateStr || getThaiDateStr());
+    setAddAttClockInTime('09:30');
+    setAddAttClockOutTime('21:00');
+    setAddAttStatus('ON_TIME');
+    setAddAttLateMinutes(0);
+    setAddAttNotes('');
+    setShowAddAttendanceModal(true);
+  };
+
   const handleAddAttendance = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!adminUser || adminUser !== 'aommyisme') {
-      alert('🔒 สิทธิ์ไม่เพียงพอ: เฉพาะ Admin คุณอ้อม (aommyisme) เท่านั้นที่สามารถบันทึกเวลาเข้างานได้');
+    if (!adminUser) {
+      alert('🔒 กรุณาเข้าสู่ระบบ Admin ก่อนทำการบันทึกเวลาเข้างาน');
       return;
     }
     if (!addAttEmpId || !addAttBranchId || !addAttDateStr) {
@@ -1398,22 +1411,13 @@ function AdminDashboardContent() {
               >
                 🚪 ออกจากระบบ
               </button>
-              {adminUser === 'aommyisme' && (
+              {Boolean(adminUser) && (
                 <button
-                  onClick={() => {
-                    setAddAttEmpId(employees[0]?.id || '');
-                    setAddAttBranchId(employees[0]?.primaryBranchId || branches[0]?.id || '');
-                    setAddAttDateStr(getThaiDateStr());
-                    setAddAttClockInTime('09:30');
-                    setAddAttClockOutTime('21:00');
-                    setAddAttStatus('ON_TIME');
-                    setAddAttLateMinutes(0);
-                    setAddAttNotes('');
-                    setShowAddAttendanceModal(true);
-                  }}
-                  className="text-xs bg-[#F97316] hover:bg-[#EA580C] text-white font-extrabold px-3.5 py-1.5 rounded-2xl transition shadow-xs active:scale-95 flex items-center gap-1.5 cursor-pointer"
+                  onClick={() => openAddAttendanceModal()}
+                  className="text-xs bg-gradient-to-r from-[#F97316] to-[#EA580C] hover:from-[#EA580C] hover:to-[#C2410C] text-white font-extrabold px-3.5 py-1.5 rounded-2xl transition shadow-md active:scale-95 flex items-center gap-1.5 cursor-pointer ring-2 ring-orange-300"
                 >
-                  <span>➕ บันทึกเวลาเข้างาน</span>
+                  <span className="text-sm">➕</span>
+                  <span>บันทึกเวลาเข้างาน</span>
                 </button>
               )}
             </div>
@@ -1607,6 +1611,15 @@ function AdminDashboardContent() {
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
+          <button
+            onClick={() => openAddAttendanceModal()}
+            className="px-3.5 py-2 bg-gradient-to-r from-[#F97316] to-[#EA580C] hover:from-[#EA580C] hover:to-[#C2410C] text-white font-extrabold rounded-xl text-xs shadow-md transition flex items-center gap-1.5 cursor-pointer active:scale-95 ring-2 ring-orange-300"
+            title="บันทึกเวลาเข้างานของพนักงานด้วยตนเอง (Manual Clock-In)"
+          >
+            <span className="text-sm">➕</span>
+            <span>บันทึกเวลาเข้างาน (Admin)</span>
+          </button>
+
           <button
             onClick={() => {
               fetchAttendanceLogs(selectedMonthYear);
@@ -1802,6 +1815,18 @@ function AdminDashboardContent() {
               {employees.length}
             </span>
           </button>
+
+          {/* DEDICATED QUICK MANUAL CLOCK-IN BUTTON IN SIDEBAR */}
+          <div className="pt-2 border-t border-[#EBE4D8] mt-2">
+            <button
+              onClick={() => openAddAttendanceModal()}
+              className="w-full py-3 px-3.5 bg-gradient-to-r from-[#F97316] to-[#EA580C] hover:from-[#EA580C] hover:to-[#C2410C] text-white rounded-2xl font-black text-xs md:text-sm shadow-md hover:shadow-lg transition flex items-center justify-center gap-2 cursor-pointer active:scale-95 ring-2 ring-orange-200"
+              title="บันทึกเวลาเข้างานของพนักงานด้วยตนเอง (Manual Clock-In)"
+            >
+              <span className="text-base">➕</span>
+              <span>บันทึกเวลาเข้างาน</span>
+            </button>
+          </div>
         </div>
 
         {/* Right Content Panel */}
@@ -3374,6 +3399,15 @@ function AdminDashboardContent() {
                   </button>
 
                   <button
+                    onClick={() => openAddAttendanceModal()}
+                    className="p-2.5 bg-gradient-to-r from-[#F97316] to-[#EA580C] hover:from-[#EA580C] hover:to-[#C2410C] text-white rounded-2xl text-xs font-black shadow-sm transition flex items-center gap-1.5 cursor-pointer active:scale-95 ring-2 ring-orange-200"
+                    title="บันทึกเวลาเข้างานของพนักงานด้วยตนเอง (Admin)"
+                  >
+                    <span>➕</span>
+                    <span>บันทึกเวลาเข้างาน</span>
+                  </button>
+
+                  <button
                     onClick={() => exportPayrollToCsv(fullTimePayroll, selectedMonthYear)}
                     className="p-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl text-xs font-black shadow-sm transition flex items-center gap-1.5 cursor-pointer active:scale-95"
                     title="ดาวน์โหลดไฟล์สำหรับนำเข้า Excel หรือส่งฝ่ายบัญชี"
@@ -3959,24 +3993,14 @@ function AdminDashboardContent() {
                   <h2 className="font-extrabold text-stone-900 text-base flex items-center gap-2">
                     <span>📋 ประวัติลงเวลาเข้า-ออกงาน ({formatThaiMonth(selectedMonthYear)})</span>
                   </h2>
-                  {adminUser === 'aommyisme' && (
-                    <button
-                      onClick={() => {
-                        setAddAttEmpId(employees[0]?.id || '');
-                        setAddAttBranchId(employees[0]?.primaryBranchId || branches[0]?.id || '');
-                        setAddAttDateStr(getThaiDateStr());
-                        setAddAttClockInTime('09:30');
-                        setAddAttClockOutTime('21:00');
-                        setAddAttStatus('ON_TIME');
-                        setAddAttLateMinutes(0);
-                        setAddAttNotes('');
-                        setShowAddAttendanceModal(true);
-                      }}
-                      className="px-3 py-1.5 bg-[#F97316] hover:bg-[#EA580C] text-white rounded-xl font-bold text-xs shadow-xs flex items-center gap-1 transition cursor-pointer active:scale-95"
-                    >
-                      <span>➕ บันทึกเวลาเข้างาน (Admin)</span>
-                    </button>
-                  )}
+                  <button
+                    onClick={() => openAddAttendanceModal()}
+                    className="px-3.5 py-1.5 bg-gradient-to-r from-[#F97316] to-[#EA580C] hover:from-[#EA580C] hover:to-[#C2410C] text-white rounded-xl font-bold text-xs shadow-md flex items-center gap-1 transition cursor-pointer active:scale-95 ring-2 ring-orange-200"
+                    title="บันทึกเวลาเข้างานของพนักงานด้วยตนเอง (Admin)"
+                  >
+                    <span>➕</span>
+                    <span>บันทึกเวลาเข้างาน (Admin)</span>
+                  </button>
                 </div>
                 <p className="text-xs text-stone-500 mt-0.5">
                   แสดง <strong className="text-stone-900">{filteredLogs.length} รายการ</strong> (จากทั้งหมด {attendanceLogs.length} รายการในเดือนนี้)
@@ -5002,7 +5026,7 @@ function AdminDashboardContent() {
                   <span>➕ บันทึกเวลาเข้างานด้วยตนเอง (Manual Clock-In)</span>
                 </h3>
                 <p className="text-[11px] text-stone-500 font-semibold mt-0.5">
-                  สิทธิ์เฉพาะผู้จัดการ: <span className="text-[#F97316] font-bold">คุณอ้อม (aommyisme)</span>
+                  สิทธิ์ผู้จัดการ: <span className="text-[#F97316] font-bold">{adminUser}</span>
                 </p>
               </div>
               <button
@@ -5184,6 +5208,19 @@ function AdminDashboardContent() {
               </div>
             </form>
           </div>
+        </div>
+      )}
+      {/* FLOATING ACTION BUTTON: ALWAYS VISIBLE MANUAL CLOCK-IN */}
+      {Boolean(adminUser) && (
+        <div className="fixed bottom-6 right-6 z-40">
+          <button
+            onClick={() => openAddAttendanceModal()}
+            className="group flex items-center gap-2.5 px-5 py-3.5 bg-gradient-to-r from-[#F97316] via-[#EA580C] to-[#C2410C] hover:from-[#EA580C] hover:to-[#9A3412] text-white font-extrabold text-sm rounded-full shadow-2xl hover:shadow-orange-500/50 transition-all duration-300 active:scale-95 border-2 border-white/60 cursor-pointer animate-bounce"
+            title="บันทึกเวลาเข้างานของพนักงานด้วยตนเอง (Manual Clock-In)"
+          >
+            <span className="text-xl">➕</span>
+            <span className="font-bold tracking-tight">บันทึกเวลาเข้างาน (Admin)</span>
+          </button>
         </div>
       )}
     </div>
