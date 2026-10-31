@@ -351,6 +351,18 @@ function AdminDashboardContent() {
   const [selectedPayrollBranchId, setSelectedPayrollBranchId] = useState<string>('ALL');
   const [showBonusRuleModal, setShowBonusRuleModal] = useState<boolean>(false);
 
+  // Manual Attendance Logging State (Restricted to Admin aommyisme)
+  const [showAddAttendanceModal, setShowAddAttendanceModal] = useState<boolean>(false);
+  const [addAttEmpId, setAddAttEmpId] = useState<string>('');
+  const [addAttBranchId, setAddAttBranchId] = useState<string>('');
+  const [addAttDateStr, setAddAttDateStr] = useState<string>(getThaiDateStr());
+  const [addAttClockInTime, setAddAttClockInTime] = useState<string>('09:30');
+  const [addAttClockOutTime, setAddAttClockOutTime] = useState<string>('21:00');
+  const [addAttStatus, setAddAttStatus] = useState<string>('ON_TIME');
+  const [addAttLateMinutes, setAddAttLateMinutes] = useState<number>(0);
+  const [addAttNotes, setAddAttNotes] = useState<string>('');
+  const [isSubmittingAddAtt, setIsSubmittingAddAtt] = useState<boolean>(false);
+
   // Part-time compensation calculation state
   const [partTimePayType, setPartTimePayType] = useState<'SHIFT' | 'HOURLY'>('SHIFT');
   const [partTimeShiftRate, setPartTimeShiftRate] = useState<number>(400);
@@ -476,6 +488,57 @@ function AdminDashboardContent() {
       }
     } catch (err: any) {
       alert('เกิดข้อผิดพลาดในการลบ: ' + err.message);
+    }
+  };
+
+  const handleAddAttendance = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!adminUser || adminUser !== 'aommyisme') {
+      alert('🔒 สิทธิ์ไม่เพียงพอ: เฉพาะ Admin คุณอ้อม (aommyisme) เท่านั้นที่สามารถบันทึกเวลาเข้างานได้');
+      return;
+    }
+    if (!addAttEmpId || !addAttBranchId || !addAttDateStr) {
+      alert('กรุณากรอกข้อมูลพนักงาน สาขา และวันที่ให้ครบถ้วน');
+      return;
+    }
+
+    setIsSubmittingAddAtt(true);
+    try {
+      const res = await fetch('/api/attendance/logs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          employeeId: addAttEmpId,
+          branchId: addAttBranchId,
+          dateStr: addAttDateStr,
+          clockInTime: addAttClockInTime,
+          clockOutTime: addAttClockOutTime,
+          status: addAttStatus,
+          lateMinutes: addAttStatus === 'LATE' ? Number(addAttLateMinutes) : 0,
+          notes: addAttNotes,
+          adminUser: adminUser,
+        }),
+      });
+
+      const data = await res.json();
+      if (data.success) {
+        alert(data.message || 'บันทึกเวลาเข้างานสำเร็จ');
+        setShowAddAttendanceModal(false);
+        // Refresh logs for currently selected month
+        if (selectedMonthYear) {
+          const fetchLogs = await fetch(`/api/attendance/logs?monthYear=${selectedMonthYear}`);
+          const logData = await fetchLogs.json();
+          if (logData.success && Array.isArray(logData.attendanceLogs)) {
+            setAttendanceLogs(logData.attendanceLogs);
+          }
+        }
+      } else {
+        alert(data.error || 'เกิดข้อผิดพลาดในการบันทึกเวลาเข้างาน');
+      }
+    } catch (err: any) {
+      alert('เกิดข้อผิดพลาด: ' + err.message);
+    } finally {
+      setIsSubmittingAddAtt(false);
     }
   };
 
@@ -1333,6 +1396,24 @@ function AdminDashboardContent() {
               >
                 🚪 ออกจากระบบ
               </button>
+              {adminUser === 'aommyisme' && (
+                <button
+                  onClick={() => {
+                    setAddAttEmpId(employees[0]?.id || '');
+                    setAddAttBranchId(employees[0]?.primaryBranchId || branches[0]?.id || '');
+                    setAddAttDateStr(getThaiDateStr());
+                    setAddAttClockInTime('09:30');
+                    setAddAttClockOutTime('21:00');
+                    setAddAttStatus('ON_TIME');
+                    setAddAttLateMinutes(0);
+                    setAddAttNotes('');
+                    setShowAddAttendanceModal(true);
+                  }}
+                  className="text-xs bg-[#F97316] hover:bg-[#EA580C] text-white font-extrabold px-3.5 py-1.5 rounded-2xl transition shadow-xs active:scale-95 flex items-center gap-1.5 cursor-pointer"
+                >
+                  <span>➕ บันทึกเวลาเข้างาน</span>
+                </button>
+              )}
             </div>
             <p className="text-xs text-stone-500 font-bold mt-1">
               ระบบบริหารจัดการ 4 สาขา ร้านผมขอทอด "ที่มันอร่อยเกินไป" (สิทธิ์ผู้จัดการ)
@@ -3720,9 +3801,29 @@ function AdminDashboardContent() {
           <div className="bg-[#FCFAF7] p-5 rounded-3xl border border-[#EBE4D8] shadow-xs space-y-4">
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-4 rounded-2xl border border-[#EBE4D8]">
               <div>
-                <h2 className="font-extrabold text-stone-900 text-base flex items-center gap-2">
-                  <span>📋 ประวัติลงเวลาเข้า-ออกงาน ({formatThaiMonth(selectedMonthYear)})</span>
-                </h2>
+                <div className="flex items-center gap-3">
+                  <h2 className="font-extrabold text-stone-900 text-base flex items-center gap-2">
+                    <span>📋 ประวัติลงเวลาเข้า-ออกงาน ({formatThaiMonth(selectedMonthYear)})</span>
+                  </h2>
+                  {adminUser === 'aommyisme' && (
+                    <button
+                      onClick={() => {
+                        setAddAttEmpId(employees[0]?.id || '');
+                        setAddAttBranchId(employees[0]?.primaryBranchId || branches[0]?.id || '');
+                        setAddAttDateStr(getThaiDateStr());
+                        setAddAttClockInTime('09:30');
+                        setAddAttClockOutTime('21:00');
+                        setAddAttStatus('ON_TIME');
+                        setAddAttLateMinutes(0);
+                        setAddAttNotes('');
+                        setShowAddAttendanceModal(true);
+                      }}
+                      className="px-3 py-1.5 bg-[#F97316] hover:bg-[#EA580C] text-white rounded-xl font-bold text-xs shadow-xs flex items-center gap-1 transition cursor-pointer active:scale-95"
+                    >
+                      <span>➕ บันทึกเวลาเข้างาน (Admin)</span>
+                    </button>
+                  )}
+                </div>
                 <p className="text-xs text-stone-500 mt-0.5">
                   แสดง <strong className="text-stone-900">{filteredLogs.length} รายการ</strong> (จากทั้งหมด {attendanceLogs.length} รายการในเดือนนี้)
                 </p>
@@ -3864,8 +3965,9 @@ function AdminDashboardContent() {
                     </tr>
                   ) : (
                     filteredLogs.map((log) => {
-                    const isAbsent = log.status === 'ABSENT' || log.lateMinutes > 30;
-                    const isLate = !isAbsent && (log.status === 'LATE' || log.lateMinutes > 15);
+                    const isCover = log.status === 'COVER_SHIFT' || log.status === 'HALF_DAY' || log.notes?.includes('เข้ากะแทน') || log.notes?.includes('มาบ่าย');
+                    const isAbsent = !isCover && (log.status === 'ABSENT' || log.lateMinutes > 30);
+                    const isLate = !isCover && !isAbsent && (log.status === 'LATE' || log.lateMinutes > 15);
 
                     return (
                       <tr key={log.id} className="hover:bg-[#FAF5EF] transition-colors">
@@ -3884,18 +3986,26 @@ function AdminDashboardContent() {
                           <div className="flex flex-col gap-1 items-start">
                             <span
                               className={`px-3 py-1 rounded-full font-bold text-[11px] inline-flex items-center gap-1 shadow-xs ${
-                                isAbsent
+                                isCover
+                                  ? 'bg-[#E8DEF8] text-[#4A2574] border border-[#D0BCFF]'
+                                  : isAbsent
                                   ? 'bg-[#FCDAD7] text-[#802227] border border-[#F8B7B2]'
                                   : isLate
                                   ? 'bg-[#FCE5CD] text-[#783E10] border border-[#F9D3AD]'
                                   : 'bg-[#D8F3E5] text-[#14533C] border border-[#B6E7CE]'
                               }`}
                             >
-                              {isAbsent ? `🛑 ขาดงาน (สาย ${log.lateMinutes} นาที)` : isLate ? `⚠️ สาย ${log.lateMinutes} นาที` : '🟢 ตรงเวลา'}
+                              {isCover
+                                ? '🔄 เข้ากะแทน (มาบ่าย / เพิ่ม)'
+                                : isAbsent
+                                ? `🛑 ขาดงาน (สาย ${log.lateMinutes} นาที)`
+                                : isLate
+                                ? `⚠️ สาย ${log.lateMinutes} นาที`
+                                : '🟢 ตรงเวลา'}
                             </span>
-                            {(log.verificationMethod === 'MANAGER_OVERRIDE' || log.notes?.includes('แก้ไขโดย Admin')) && (
+                            {(log.verificationMethod === 'MANAGER_OVERRIDE' || log.notes?.includes('Admin')) && (
                               <span className="text-[9px] font-extrabold text-[#783E10] bg-[#FCE5CD] border border-[#F9D3AD] px-2 py-0.5 rounded-full whitespace-nowrap">
-                                🛠️ (แก้ไขโดย Admin)
+                                🛠️ (บันทึก/แก้ไขโดย Admin)
                               </span>
                             )}
                           </div>
@@ -4724,6 +4834,201 @@ function AdminDashboardContent() {
             >
               ตกลง (เข้าใจเงื่อนไข)
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Manual Attendance Logging Modal (Admin aommyisme only) */}
+      {showAddAttendanceModal && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-[#FCFAF7] border border-[#EBE4D8] rounded-3xl p-6 max-w-lg w-full shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between border-b border-[#EBE4D8] pb-3">
+              <div>
+                <h3 className="font-extrabold text-stone-900 text-sm flex items-center gap-2">
+                  <span>➕ บันทึกเวลาเข้างานด้วยตนเอง (Manual Clock-In)</span>
+                </h3>
+                <p className="text-[11px] text-stone-500 font-semibold mt-0.5">
+                  สิทธิ์เฉพาะผู้จัดการ: <span className="text-[#F97316] font-bold">คุณอ้อม (aommyisme)</span>
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowAddAttendanceModal(false)}
+                className="text-stone-400 hover:text-stone-700 font-bold text-sm cursor-pointer p-1"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleAddAttendance} className="space-y-4 text-xs">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {/* Employee Selection */}
+                <div>
+                  <label className="block font-bold text-stone-700 mb-1">
+                    👤 เลือกพนักงาน <span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    value={addAttEmpId}
+                    onChange={(e) => {
+                      const empId = e.target.value;
+                      setAddAttEmpId(empId);
+                      const emp = employees.find((x) => x.id === empId);
+                      if (emp && emp.primaryBranchId) {
+                        setAddAttBranchId(emp.primaryBranchId);
+                      }
+                    }}
+                    required
+                    className="w-full p-2.5 bg-white border border-[#E5DDD4] rounded-xl font-bold text-stone-900 outline-none focus:ring-2 focus:ring-[#F97316]"
+                  >
+                    <option value="">-- กรุณาเลือกพนักงาน --</option>
+                    {employees.map((emp) => (
+                      <option key={emp.id} value={emp.id}>
+                        {emp.fullName} ({emp.nickname || 'พนักงาน'})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Branch Selection */}
+                <div>
+                  <label className="block font-bold text-stone-700 mb-1">
+                    🏬 สาขาที่เข้างาน <span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    value={addAttBranchId}
+                    onChange={(e) => setAddAttBranchId(e.target.value)}
+                    required
+                    className="w-full p-2.5 bg-white border border-[#E5DDD4] rounded-xl font-bold text-stone-900 outline-none focus:ring-2 focus:ring-[#F97316]"
+                  >
+                    <option value="">-- เลือกสาขา --</option>
+                    {branches.map((b) => (
+                      <option key={b.id} value={b.id}>
+                        {b.name} ({b.code})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Date & Time */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="block font-bold text-stone-700 mb-1">
+                    📅 วันที่เข้างาน <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="date"
+                    value={addAttDateStr}
+                    onChange={(e) => setAddAttDateStr(e.target.value)}
+                    required
+                    className="w-full p-2.5 bg-white border border-[#E5DDD4] rounded-xl font-bold text-stone-900 outline-none focus:ring-2 focus:ring-[#F97316]"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-bold text-stone-700 mb-1">
+                    ⏰ เวลาเข้างาน
+                  </label>
+                  <input
+                    type="time"
+                    value={addAttClockInTime}
+                    onChange={(e) => setAddAttClockInTime(e.target.value)}
+                    className="w-full p-2.5 bg-white border border-[#E5DDD4] rounded-xl font-bold text-stone-900 outline-none focus:ring-2 focus:ring-[#F97316]"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-bold text-stone-700 mb-1">
+                    🏁 เวลาออกงาน
+                  </label>
+                  <input
+                    type="time"
+                    value={addAttClockOutTime}
+                    onChange={(e) => setAddAttClockOutTime(e.target.value)}
+                    className="w-full p-2.5 bg-white border border-[#E5DDD4] rounded-xl font-bold text-stone-900 outline-none focus:ring-2 focus:ring-[#F97316]"
+                  />
+                </div>
+              </div>
+
+              {/* Status & Options */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold text-stone-700 mb-1">
+                    🏷️ รูปแบบ / สถานะการเข้างาน
+                  </label>
+                  <select
+                    value={addAttStatus}
+                    onChange={(e) => setAddAttStatus(e.target.value)}
+                    className="w-full p-2.5 bg-white border border-[#E5DDD4] rounded-xl font-bold text-stone-900 outline-none focus:ring-2 focus:ring-[#F97316]"
+                  >
+                    <option value="ON_TIME">🟢 ตรงเวลา (ON_TIME)</option>
+                    <option value="COVER_SHIFT">🔄 เข้ากะแทน (มาบ่าย / กะทำงานเพิ่ม) (COVER_SHIFT)</option>
+                    <option value="LATE">⚠️ มาสาย (LATE)</option>
+                    <option value="ABSENT">🛑 ขาดงาน (ABSENT)</option>
+                  </select>
+                </div>
+
+                {addAttStatus === 'LATE' ? (
+                  <div>
+                    <label className="block font-bold text-amber-800 mb-1">
+                      ⚠️ จำนวนนาทีที่สาย (นาที)
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="480"
+                      value={addAttLateMinutes}
+                      onChange={(e) => setAddAttLateMinutes(Number(e.target.value))}
+                      className="w-full p-2.5 bg-amber-50 border border-amber-300 rounded-xl font-bold text-amber-900 outline-none focus:ring-2 focus:ring-amber-500"
+                    />
+                  </div>
+                ) : (
+                  <div className="flex items-center text-[11px] text-stone-500 p-2.5 bg-[#F5EFEA] rounded-xl border border-[#E5DDD4]">
+                    <span>
+                      {addAttStatus === 'COVER_SHIFT'
+                        ? '💡 เข้ากะแทน/มาบ่าย ไม่ถูกนับเป็นสาย และนับกะทำงานตามจริง'
+                        : '💡 สถานะตรงเวลา ไม่มีการหักเวลาสาย'}
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              {/* Notes */}
+              <div>
+                <label className="block font-bold text-stone-700 mb-1">
+                  📝 หมายเหตุ (เช่น เหตุผล หรือรายละเอียดการเข้างาน)
+                </label>
+                <input
+                  type="text"
+                  placeholder="เช่น เข้ากะแทนเพื่อนร่วมงานที่ลาป่วย, ลืมกดเข้างาน เป็นต้น"
+                  value={addAttNotes}
+                  onChange={(e) => setAddAttNotes(e.target.value)}
+                  className="w-full p-2.5 bg-white border border-[#E5DDD4] rounded-xl text-stone-900 outline-none focus:ring-2 focus:ring-[#F97316]"
+                />
+              </div>
+
+              <div className="bg-orange-50 border border-orange-200 p-3 rounded-2xl text-[11px] text-orange-900 font-medium">
+                🔒 ข้อมูลการเข้างานนี้จะถูกบันทึกโดยสิทธิ์ของ Admin: <strong>{adminUser}</strong> พร้อมแสดงป้ายกำกับในระบบ
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2 border-t border-[#EBE4D8]">
+                <button
+                  type="button"
+                  onClick={() => setShowAddAttendanceModal(false)}
+                  disabled={isSubmittingAddAtt}
+                  className="px-4 py-2.5 bg-[#F5EFEA] hover:bg-[#E5DDD4] text-stone-700 font-bold rounded-xl transition cursor-pointer"
+                >
+                  ยกเลิก
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmittingAddAtt}
+                  className="px-5 py-2.5 bg-[#F97316] hover:bg-[#EA580C] text-white font-black rounded-xl shadow-xs transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                >
+                  <span>{isSubmittingAddAtt ? '⏳ กำลังบันทึก...' : '💾 บันทึกเวลาเข้างาน'}</span>
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
