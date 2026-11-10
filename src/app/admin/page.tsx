@@ -2258,7 +2258,7 @@ function AdminDashboardContent() {
                         } else if (item.attendance) {
                           const branchCode = item.attendance.branch?.code || 'สาขา';
                           const timeStr = item.attendance.timestamp
-                            ? new Date(item.attendance.timestamp).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })
+                            ? new Date(item.attendance.timestamp).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Bangkok' })
                             : '';
                           if (item.attendance.status === 'ON_TIME') {
                             bgClass = 'bg-emerald-50 border-emerald-300 text-emerald-900 shadow-xs hover:bg-emerald-100 hover:border-emerald-400';
